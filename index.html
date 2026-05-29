@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#05060d" />
+  <title>Aether Field — particles advected through an audio-driven fluid</title>
+  <meta name="description" content="A browser-based mathematical music visualizer where particles are advected through an audio-reactive fluid field." />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Layered cinematic background -->
+  <div class="bg bg-gradient"></div>
+  <div class="bg bg-glow"></div>
+  <div class="bg bg-grain"></div>
+  <div class="bg bg-vignette"></div>
+
+  <!-- Main immersive canvas (fluid glow + particle tracers) -->
+  <canvas id="field" aria-label="Fluid particle field visualizer"></canvas>
+
+  <!-- Restore button, shown only when the panel is hidden -->
+  <button class="restore-btn" id="restoreBtn" aria-label="Show control panel">Show panel</button>
+
+  <!-- Glassmorphism control panel -->
+  <aside class="panel" id="panel">
+    <header class="panel-head">
+      <div class="head-row">
+        <h1 class="title">Aether Field</h1>
+        <div class="head-actions">
+          <button class="icon-btn" id="fullscreenBtn" title="Fullscreen (F)" aria-label="Toggle fullscreen">⤢</button>
+          <button class="icon-btn" id="hideBtn" title="Hide panel (H)" aria-label="Hide panel">×</button>
+        </div>
+      </div>
+      <p class="subtitle">Particles advected through an audio-driven fluid field.</p>
+    </header>
+
+    <div class="panel-body">
+      <!-- Source selector -->
+      <div class="seg" role="tablist" aria-label="Audio source">
+        <button class="seg-btn is-active" id="modeUpload" role="tab" aria-selected="true">Upload</button>
+        <button class="seg-btn" id="modeMic" role="tab" aria-selected="false">Mic</button>
+        <button class="seg-btn" id="modeSystem" role="tab" aria-selected="false">System</button>
+      </div>
+
+      <!-- Upload controls -->
+      <div class="group" id="musicControls">
+        <button class="btn btn-ghost" id="uploadBtn">
+          <span class="ic">⤒</span> Add audio
+        </button>
+        <input type="file" id="fileInput" accept="audio/*" multiple hidden />
+
+        <!-- Transport -->
+        <div class="row transport">
+          <button class="btn btn-mini" id="prevBtn" disabled aria-label="Previous track">⏮</button>
+          <button class="btn btn-play" id="playBtn" disabled aria-label="Play or pause">
+            <span class="ic ic-play">▶</span>
+          </button>
+          <button class="btn btn-mini" id="nextBtn" disabled aria-label="Next track">⏭</button>
+        </div>
+
+        <p class="track" id="trackName">No track loaded</p>
+
+        <!-- Seek / time bar -->
+        <div class="seek-row">
+          <span class="time" id="curTime">0:00</span>
+          <input type="range" id="seek" min="0" max="1" step="0.001" value="0" disabled aria-label="Seek" />
+          <span class="time" id="durTime">0:00</span>
+        </div>
+
+        <!-- Playback queue -->
+        <ul class="queue" id="queue" aria-label="Playback queue"></ul>
+      </div>
+
+      <!-- System-audio explanation (shown only in System mode) -->
+      <p class="note" id="systemNote" style="display:none">
+        Pick a <strong>tab, window, or screen</strong> and turn on
+        <strong>“Share audio”</strong> in the dialog. Your browser will then show a
+        <strong>“sharing” indicator</strong> — that's normal and required by the
+        browser. Nothing is uploaded or recorded; the page only reads the sound,
+        and you can stop anytime. Prefer no banner? <strong>Upload</strong> or
+        <strong>Mic</strong> work without it.
+      </p>
+
+      <!-- Volume (Upload mode only) -->
+      <label class="field" id="volumeRow">
+        <span class="lbl">Volume</span>
+        <input type="range" id="volume" min="0" max="1" step="0.01" value="0.25" />
+      </label>
+
+      <!-- Visual intensity: bar now maxes at 0.5 (= 0.25 × the old 2.0 max) -->
+      <label class="field">
+        <span class="lbl">Visual intensity</span>
+        <input type="range" id="intensity" min="0" max="0.5" step="0.005" value="0.25" />
+      </label>
+
+      <!-- Particle density -->
+      <div class="field">
+        <span class="lbl">Particle density</span>
+        <div class="seg seg-sm" role="group" aria-label="Particle density">
+          <button class="seg-btn" data-density="low">Low</button>
+          <button class="seg-btn is-active" data-density="medium">Med</button>
+          <button class="seg-btn" data-density="high">High</button>
+          <button class="seg-btn" data-density="extra_high">Ultra</button>
+          <button class="seg-btn" data-density="too_much">Max</button>
+        </div>
+      </div>
+
+      <!-- Merge animation toggle -->
+      <div class="field">
+        <span class="lbl">Merge animation</span>
+        <div class="seg seg-sm" role="group" aria-label="Merge animation">
+          <button class="seg-btn is-active" data-merge="on">On</button>
+          <button class="seg-btn" data-merge="off">Off</button>
+        </div>
+      </div>
+
+      <p class="hint">Drag to stir · <kbd>F</kbd> fullscreen · <kbd>H</kbd> hide · <kbd>B</kbd> merge now</p>
+    </div>
+
+    <footer class="panel-foot">
+      <span class="status-dot" id="statusDot"></span>
+      <span class="status" id="status">Idle</span>
+    </footer>
+  </aside>
+
+  <!-- Hidden audio element drives Upload mode -->
+  <audio id="audio" crossorigin="anonymous"></audio>
+
+  <!-- Modules (plain scripts so the page also opens from file://) -->
+  <script src="js/color-mapper.js"></script>
+  <script src="js/fluid-field.js"></script>
+  <script src="js/feature-extractor.js"></script>
+  <script src="js/audio-engine.js"></script>
+  <script src="js/particle-system.js"></script>
+  <script src="js/ui-controller.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

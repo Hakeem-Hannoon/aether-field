@@ -1,0 +1,428 @@
+/* ============================================================
+   Aether Field — app.js
+   ------------------------------------------------------------
+   Orchestrates the whole visualizer:
+
+     audio  -> FeatureExtractor -> FluidField (force injection)
+            -> ParticleSystem (advection) + field glow -> Canvas
+
+   Each frame:
+     1. extract audio features  A(t)
+     2. fluid.step(dt, A, pointer)          (stable-fluids pipeline)
+     3. particles.update(dt, fluid, A)      (advect tracers)
+     4. render: trail fade -> field plasma glow -> particles
+
+   Everything runs client-side; no backend, no API keys.
+   ============================================================ */
+
+(function (Aether) {
+  "use strict";
+
+  const { ColorMapper, FluidField, FeatureExtractor, AudioEngine, ParticleSystem, UIController } = Aether;
+  const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+
+  const isMobile =
+    /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+    Math.min(window.innerWidth, window.innerHeight) < 560;
+
+  const CONFIG = {
+    targetGridW: isMobile ? 84 : 132,   // sim grid width (96..180 range honored on desktop)
+    dprCap: isMobile ? 1.5 : 2,
+    density: { low: 1000, medium: 5000, high: 10000, extra_high: 25000, too_much: 55000}, // particles per megapixel
+    maxParticles: isMobile ? 800 : 2600,
+    trailFade: 0.14,
+    brightness: 1.0,                     // master brightness dial (lower = dimmer everything)
+    fieldGlowAlpha: 0.16,                // strength of the low-res plasma layer (lower = dimmer)
+    // velRef is the velocity (px/s) that reads as "fully hot/bright". Set high
+    // so loud music doesn't drive the *whole* field to max (which blew out to
+    // white); only the fastest streaks go hot, the rest stay cool & colorful.
+    velRef: 520,
+    vortRef: 7,
+    bg: [4, 5, 11],
+  };
+
+  // Feature vector used before any audio is activated (calm idle drift).
+  const IDLE_FEATURES = {
+    rms: 0, sub: 0, bass: 0, lowMid: 0, mid: 0, highMid: 0, treble: 0,
+    centroid: 0, flux: 0, onset: 0, onsetStrength: 0, energy: 0,
+  };
+
+  /* ---------------- Canvas ---------------- */
+  const canvas = document.getElementById("field");
+  const ctx = canvas.getContext("2d", { alpha: true });
+
+  const state = {
+    width: 0, height: 0, dpr: 1, time: 0,
+    intensity: 0.25, densityKey: "medium", audioActive: false, mode: "upload",
+  };
+
+  const pointer = { x: -9999, y: -9999, px: -9999, py: -9999, active: false, down: false };
+
+  /* ---------------- Core modules ---------------- */
+  const colorMapper = new ColorMapper(256);
+  const particles = new ParticleSystem(colorMapper);
+  particles.config.velRef = CONFIG.velRef;
+  particles.config.vortRef = CONFIG.vortRef;
+  particles.config.brightness = CONFIG.brightness;
+
+  const audioEngine = new AudioEngine();
+  const audioEl = document.getElementById("audio");
+
+  let fluid = null;
+  let featureExtractor = null;
+
+  // Low-res offscreen canvas for the fluid plasma glow.
+  const glowCanvas = document.createElement("canvas");
+  const glowCtx = glowCanvas.getContext("2d");
+  let glowImage = null;
+
+  /* ---------------- Sizing ---------------- */
+  function computeScale(w) {
+    return Math.max(4, Math.round(w / CONFIG.targetGridW));
+  }
+
+  function targetParticleCount() {
+    const mp = (state.width * state.height) / 1e6;
+    const n = Math.round(CONFIG.density[state.densityKey] * mp);
+    return Math.max(60, Math.min(CONFIG.maxParticles, n));
+  }
+
+  function resize() {
+    state.dpr = Math.min(window.devicePixelRatio || 1, CONFIG.dprCap);
+    state.width = window.innerWidth;
+    state.height = window.innerHeight;
+    canvas.width = Math.round(state.width * state.dpr);
+    canvas.height = Math.round(state.height * state.dpr);
+    canvas.style.width = state.width + "px";
+    canvas.style.height = state.height + "px";
+    ctx.setTransform(state.dpr, 0, 0, state.dpr, 0, 0);
+
+    const scale = computeScale(state.width);
+    if (!fluid) {
+      fluid = new FluidField(state.width, state.height, scale);
+    } else {
+      fluid.scale = scale;
+      fluid.resize(state.width, state.height);
+    }
+    _syncGlowCanvas();
+    particles.setView(state.width, state.height);
+  }
+
+  function _syncGlowCanvas() {
+    if (glowCanvas.width !== fluid.W || glowCanvas.height !== fluid.H) {
+      glowCanvas.width = fluid.W;
+      glowCanvas.height = fluid.H;
+      glowImage = glowCtx.createImageData(fluid.W, fluid.H);
+      // Pre-fill alpha bytes; we overwrite RGB + A every frame.
+      glowImage.data.fill(0);
+    }
+  }
+
+  function rebuildParticles() {
+    particles.rebuild(targetParticleCount(), state.width, state.height);
+  }
+
+  /* ---------------- Pointer ---------------- */
+  function pointerMove(x, y) {
+    if (!pointer.active) { pointer.px = x; pointer.py = y; }
+    pointer.x = x; pointer.y = y; pointer.active = true;
+  }
+  function pointerLeave() { pointer.active = false; pointer.down = false; }
+
+  canvas.addEventListener("mousemove", (e) => pointerMove(e.clientX, e.clientY));
+  canvas.addEventListener("mouseleave", pointerLeave);
+  canvas.addEventListener("mousedown", (e) => { pointerMove(e.clientX, e.clientY); pointer.down = true; });
+  window.addEventListener("mouseup", () => { pointer.down = false; });
+  canvas.addEventListener("touchmove", (e) => {
+    const t = e.touches[0]; if (t) pointerMove(t.clientX, t.clientY);
+  }, { passive: true });
+  canvas.addEventListener("touchstart", (e) => {
+    const t = e.touches[0]; if (t) { pointerMove(t.clientX, t.clientY); pointer.down = true; }
+  }, { passive: true });
+  canvas.addEventListener("touchend", () => { pointer.down = false; pointer.active = false; }, { passive: true });
+
+  /* ---------------- Field plasma glow ---------------- */
+  function renderFieldGlow(features) {
+    const W = fluid.W, H = fluid.H;
+    const u = fluid.u, v = fluid.v, curl = fluid.curl, dye = fluid.dye;
+    const data = glowImage.data;
+    const co = particles.config.coeff;
+    const velRef = CONFIG.velRef, vortRef = CONFIG.vortRef;
+    const lut = colorMapper.lut, lutN = colorMapper.lutSize;
+
+    for (let j = 1; j < H - 1; j++) {
+      for (let i = 1; i < W - 1; i++) {
+        const idx = i + j * W;
+        const spd = Math.hypot(u[idx], v[idx]);
+        const velN = clamp(spd / velRef, 0, 1);
+        const vortN = clamp(Math.abs(curl[idx]) / vortRef, 0, 1);
+        const d = dye[idx];
+        const T = clamp(
+          co.a * velN + co.b * vortN + co.c * features.treble + co.d * features.flux + co.e * features.centroid,
+          0, 1
+        );
+        const li = Math.min(lutN - 1, (T * (lutN - 1)) | 0) * 3;
+        // Soft exposure tone-map: asymptotes toward ~1 instead of clipping
+        // hard to white, so loud passages stay rich rather than blown out.
+        const a = 1 - Math.exp(-(d * 0.5 + velN * 0.42));
+        const o = idx * 4;
+        data[o] = lut[li];
+        data[o + 1] = lut[li + 1];
+        data[o + 2] = lut[li + 2];
+        data[o + 3] = (a * 255) | 0;
+      }
+    }
+    glowCtx.putImageData(glowImage, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.globalAlpha = CONFIG.fieldGlowAlpha * CONFIG.brightness;
+    ctx.drawImage(glowCanvas, 0, 0, state.width, state.height);
+    ctx.globalAlpha = 1;
+  }
+
+  /* ---------------- Main loop ---------------- */
+  let lastTime = performance.now();
+
+  function frame(now) {
+    let dt = (now - lastTime) / 1000;
+    lastTime = now;
+    if (dt > 0.05) dt = 0.05;       // clamp after tab switches
+    if (dt <= 0) dt = 1 / 60;
+    state.time += dt;
+
+    // 1. Audio features
+    let features;
+    if (featureExtractor) {
+      features = state.audioActive ? featureExtractor.update(dt) : featureExtractor.idle(dt);
+    } else {
+      features = IDLE_FEATURES;
+    }
+
+    // 2. Fluid step
+    fluid.forceGain = state.intensity;
+    fluid.step(dt, features, pointer.active ? pointer : null);
+    pointer.px = pointer.x; pointer.py = pointer.y;
+
+    // 3. Particle advection
+    particles.update(dt, fluid, features);
+
+    // 4. Render
+    const fade = CONFIG.trailFade + features.energy * 0.10;
+    ctx.globalCompositeOperation = "source-over";
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = `rgba(${CONFIG.bg[0]},${CONFIG.bg[1]},${CONFIG.bg[2]},${fade})`;
+    ctx.fillRect(0, 0, state.width, state.height);
+
+    ctx.globalCompositeOperation = "lighter";
+    renderFieldGlow(features);
+    particles.draw(ctx, fluid, features, state.time, state.intensity);
+
+    ctx.globalCompositeOperation = "source-over";
+    requestAnimationFrame(frame);
+  }
+
+  /* ---------------- Audio activation helpers ---------------- */
+  function ensureExtractor() {
+    if (!featureExtractor && audioEngine.analyser) {
+      featureExtractor = new FeatureExtractor(audioEngine.analyser);
+    }
+  }
+
+  /* ---------------- Playback queue ---------------- */
+  const queue = [];          // [{ name, url }]
+  let currentIndex = -1;
+  let ui;
+
+  function refreshTransport() {
+    ui.enableTransport(
+      queue.length > 0,
+      currentIndex > 0,
+      currentIndex >= 0 && currentIndex < queue.length - 1
+    );
+    ui.renderQueue(queue, currentIndex);
+  }
+
+  function loadTrack(i) {
+    if (i < 0 || i >= queue.length) return;
+    currentIndex = i;
+    audioEl.src = queue[i].url;
+    audioEl.load();
+    ui.setTrackName(queue[i].name);
+    ui.setProgress(0, 0);
+    refreshTransport();
+  }
+
+  async function playCurrent() {
+    if (currentIndex < 0) return;
+    audioEngine.ensureContext();
+    await audioEngine.resume();
+    audioEngine.connectMusic(audioEl);
+    ensureExtractor();
+    try { await audioEl.play(); }
+    catch (e) { ui.setStatus("blocked", "Playback blocked"); }
+  }
+
+  /* ---------------- UI handlers ---------------- */
+  const handlers = {
+    onUploadFiles(files) {
+      const wasEmpty = queue.length === 0;
+      for (const f of files) queue.push({ name: f.name, url: URL.createObjectURL(f) });
+      if (wasEmpty) { loadTrack(0); playCurrent(); }
+      else refreshTransport();
+      ui.setStatus("idle", "Ready");
+    },
+
+    async onTogglePlay() {
+      if (currentIndex < 0) {
+        if (queue.length) loadTrack(0); else return;
+      }
+      audioEngine.ensureContext();
+      await audioEngine.resume();
+      audioEngine.connectMusic(audioEl);
+      ensureExtractor();
+      if (audioEl.paused) {
+        try { await audioEl.play(); }
+        catch (e) { ui.setStatus("blocked", "Playback blocked"); }
+      } else {
+        audioEl.pause();
+      }
+    },
+
+    onNext() {
+      if (currentIndex < queue.length - 1) { loadTrack(currentIndex + 1); playCurrent(); }
+    },
+    onPrev() {
+      // Restart the current track if we're past 3s, otherwise go to the previous.
+      if (audioEl.currentTime > 3 || currentIndex <= 0) { audioEl.currentTime = 0; }
+      else { loadTrack(currentIndex - 1); playCurrent(); }
+    },
+    onSelectTrack(i) { loadTrack(i); playCurrent(); },
+    onRemoveTrack(i) {
+      if (i < 0 || i >= queue.length) return;
+      URL.revokeObjectURL(queue[i].url);
+      const wasCurrent = i === currentIndex;
+      const wasPlaying = !audioEl.paused;
+      queue.splice(i, 1);
+      if (queue.length === 0) {
+        currentIndex = -1;
+        audioEl.pause();
+        audioEl.removeAttribute("src");
+        audioEl.load();
+        ui.setTrackName("No track loaded");
+        ui.setProgress(0, 0);
+        refreshTransport();
+        return;
+      }
+      if (i < currentIndex) {
+        currentIndex--;
+      } else if (wasCurrent) {
+        currentIndex = Math.min(currentIndex, queue.length - 1);
+        loadTrack(currentIndex);
+        if (wasPlaying) playCurrent();
+      }
+      refreshTransport();
+    },
+    onSeek(frac) {
+      if (isFinite(audioEl.duration) && audioEl.duration > 0) {
+        audioEl.currentTime = frac * audioEl.duration;
+      }
+    },
+
+    onVolume(v) { audioEl.volume = v; },
+    onIntensity(v) { state.intensity = v; },
+    onDensity(key) { state.densityKey = key; rebuildParticles(); },
+    onMergeToggle(on) { if (fluid) fluid.setBondEnabled(on); },
+    onTriggerMerge() { if (fluid) fluid.triggerBond(); },
+
+    async onMode(mode) {
+      state.mode = mode;
+      if (mode === "upload") {
+        audioEngine.stopCapture();
+        state.audioActive = !audioEl.paused && !!audioEl.src;
+        ui.setStatus(state.audioActive ? "playing" : "idle", state.audioActive ? "Playing" : "Idle");
+        return;
+      }
+      // mic / system: stop the file + any other capture first.
+      if (!audioEl.paused) audioEl.pause();
+      audioEngine.stopCapture();
+      state.audioActive = false;
+
+      if (mode === "mic") {
+        ui.setStatus("idle", "Requesting microphone…");
+        try {
+          await audioEngine.startMic();
+          ensureExtractor();
+          state.audioActive = true;
+          ui.setStatus("listening", "Listening (mic)");
+        } catch (e) {
+          state.audioActive = false;
+          ui.setStatus("blocked", "Microphone blocked");
+        }
+      } else if (mode === "system") {
+        ui.setStatus("idle", "Choose a tab/window & enable “Share audio”…");
+        try {
+          await audioEngine.startSystem();
+          audioEngine.onSystemEnded = () => {
+            state.audioActive = false;
+            ui.setStatus("idle", "System capture ended");
+          };
+          ensureExtractor();
+          state.audioActive = true;
+          ui.setStatus("listening", "Capturing system audio");
+        } catch (e) {
+          state.audioActive = false;
+          ui.setStatus(
+            "blocked",
+            e && e.message === "no-audio-track" ? "No audio shared — tick “Share audio”" : "System capture blocked"
+          );
+        }
+      }
+    },
+  };
+
+  /* ---------------- Audio element events ---------------- */
+  audioEl.addEventListener("play", () => {
+    if (state.mode === "upload") { state.audioActive = true; ui.setPlaying(true); ui.setStatus("playing", "Playing"); }
+  });
+  audioEl.addEventListener("pause", () => {
+    ui.setPlaying(false);
+    if (state.mode === "upload") { state.audioActive = false; ui.setStatus("idle", "Paused"); }
+  });
+  audioEl.addEventListener("ended", () => {
+    ui.setPlaying(false);
+    // Auto-advance the queue; stop at the end of the last track.
+    if (currentIndex < queue.length - 1) {
+      loadTrack(currentIndex + 1);
+      playCurrent();
+    } else if (state.mode === "upload") {
+      state.audioActive = false;
+      ui.setStatus("idle", "Idle");
+    }
+  });
+  // Seek bar + time labels.
+  audioEl.addEventListener("loadedmetadata", () => ui.setProgress(audioEl.currentTime, audioEl.duration));
+  audioEl.addEventListener("durationchange", () => ui.setProgress(audioEl.currentTime, audioEl.duration));
+  audioEl.addEventListener("timeupdate", () => ui.setProgress(audioEl.currentTime, audioEl.duration));
+
+  /* ---------------- Resize (debounced particle rebuild) ---------------- */
+  let resizeTimer = null;
+  window.addEventListener("resize", () => {
+    resize();
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(rebuildParticles, 200);
+  });
+
+  /* ---------------- Init ---------------- */
+  function init() {
+    resize();
+    rebuildParticles();
+    ui = new UIController(handlers);
+    // HTML sliders are the source of truth for their defaults.
+    audioEl.volume = parseFloat(document.getElementById("volume").value || "0.25");
+    state.intensity = parseFloat(document.getElementById("intensity").value || "0.25");
+    refreshTransport();          // disabled transport + empty queue
+    ui.setStatus("idle", "Idle");
+    requestAnimationFrame((t) => { lastTime = t; frame(t); });
+  }
+
+  init();
+})((window.Aether = window.Aether || {}));
