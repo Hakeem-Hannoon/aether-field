@@ -2,7 +2,7 @@
 
 A browser-based mathematical music visualizer where particles are advected through an audio-reactive fluid field.
 
-This is motivated from the anmiations I used to stare at as a kid when I play music on my Windoes XP Media Player. Suggested song to play is this remix of The Greatest: [text](https://www.youtube.com/watch?v=yd8-nmLyYp0)
+This is motivated from the anmiations I used to stare at as a kid when I play music on my Windoes XP Media Player. Suggested song to play is this [remix of The Greatest](https://www.youtube.com/watch?v=yd8-nmLyYp0)
 
 ---
 
