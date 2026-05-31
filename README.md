@@ -31,11 +31,15 @@ It is a **static site** — no backend, no database, no API keys.
 - **Audio upload mode** — analyze and play local audio files; **queue several at once**, with a **seek/time bar**, previous/next, and auto-advance (cleanest analysis).
 - **Microphone mode** — react to voice or anything your mic hears.
 - **System / tab audio capture mode** — analyze a shared tab, window, or screen.
+- **Hand control (camera) mode** — stir the fluid with your bare hands via Google
+  MediaPipe's Hand Landmarker; **runs simultaneously with any audio source**, and a
+  raised-but-still hand keeps interacting (gently). **Gestures trigger animations:**
+  ✋ open-palm aura, ✊ fist vortex, 🤏 pinch spark, ✋✋ two-palm energy bridge.
 - **Fullscreen mode** — immersive edge-to-edge canvas.
 - **Hide / show UI panel** — get the controls out of the way.
 - **Particle density control** — Low / Med / High / Ultra / Max.
 - **Visual intensity control** — scales how hard audio drives the fluid.
-- **Keyboard shortcuts** — `F`, `H`, `Space`, `M`, `U`, `S`.
+- **Keyboard shortcuts** — `F`, `H`, `Space`, `M`, `U`, `S`, `G`, `B`.
 - **Mouse / touch field interaction** — drag to stir the fluid; press for a pressure burst.
 - **Fluid-field particle motion** — particles are tracers of a real velocity field, not independent dots.
 - **Smooth spectral color gradients** — a temperature model mapped through a 9-stop palette.
@@ -59,6 +63,7 @@ js/
   feature-extractor.js      FFT/waveform → audio feature vector A(t)
   audio-engine.js           Web Audio graph: upload / mic / system sources
   particle-system.js        Particle tracers: advection, coloring, rendering
+  hand-tracker.js           Webcam + MediaPipe Hand Landmarker → fluid stir points
   ui-controller.js          DOM wiring, keyboard shortcuts, fullscreen, panel
   app.js                    Orchestration, sizing, render loop, field glow
 ```
@@ -68,10 +73,11 @@ js/
 | File | Responsibility |
 |------|----------------|
 | `color-mapper.js` | Builds a 256-entry RGB lookup table from the color stops; exposes `temperature()` and `colorAt()`. |
-| `fluid-field.js` | `FluidField` class: grid storage, `addForce`, `addDye`, `step`, `advectVelocity`, `diffuseVelocity`, `computeDivergence`, `solvePressure`, `subtractPressureGradient`, `project`, `sampleVelocity`, `sampleVorticity`, `injectAudioForces`, `injectPointerForces`. |
+| `fluid-field.js` | `FluidField` class: grid storage, `addForce`, `addDye`, `step`, `advectVelocity`, `diffuseVelocity`, `computeDivergence`, `solvePressure`, `subtractPressureGradient`, `project`, `sampleVelocity`, `sampleVorticity`, `injectAudioForces`, `injectPointerForces`, `injectHandForces`. |
 | `feature-extractor.js` | `FeatureExtractor` class: band energies, RMS, spectral centroid, spectral flux, adaptive onset detection, adaptive normalization, smoothing. |
 | `audio-engine.js` | `AudioEngine` class: a single `AnalyserNode` tap plus upload / mic / `getDisplayMedia` sources. |
 | `particle-system.js` | `ParticleSystem` class: pre-baked glow sprites, fluid-following update, temperature coloring, additive rendering. |
+| `hand-tracker.js` | `HandTracker` class: webcam capture + lazily-loaded MediaPipe Hand Landmarker; emits smoothed, mirrored fingertip/palm stir points (with pinch) for `injectHandForces`. |
 | `ui-controller.js` | `UIController` class: translates UI events into handler calls; reflects status back into the DOM. |
 | `app.js` | Wires everything together, owns the `requestAnimationFrame` loop and the low-res field-glow layer. |
 
@@ -132,6 +138,38 @@ Keep the `js/` folder next to `index.html`; the script paths are relative.
 - Browser support varies (best on recent desktop Chromium browsers; "share tab audio" is the most widely supported case).
 - **No banner wanted?** Use **Upload** (your own files) or **Microphone** mode — neither shows any sharing indicator.
 
+**Hand control (camera)** *(independent — runs alongside the audio)*
+- Toggle **On/Off** under "Hand control," or press **`G`**. Unlike the three audio
+  modes (which are mutually exclusive), hand control is a **separate input that runs
+  at the same time** as Upload / Mic / System — so you can conduct the field with
+  your hands while music plays.
+- Powered by **Google MediaPipe's [Hand Landmarker](https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker)**
+  (`@mediapipe/tasks-vision`). The WebAssembly runtime and the hand model are fetched
+  lazily from a CDN the **first** time you enable the feature (≈ 8 MB, then cached by
+  the browser); the rest of the app keeps working offline.
+- Tracks up to **two hands**. Each **fingertip** and the **palm** becomes a stir point
+  that injects velocity + dye into the fluid. The camera image is **mirrored** (selfie
+  view) so motion feels like a looking glass; a small live preview shows the detected
+  skeleton.
+- **A still hand still interacts:** every stir point emits a constant gentle vortex and
+  a whisper of dye, so simply holding a hand up keeps the fluid breathing around it.
+  Moving adds drag along the motion.
+- **Gestures → animations.** The pose of each hand is recognised and triggers a showpiece
+  effect (sized to your hand, and strong enough to read even at low visual intensity):
+
+  | Gesture | Effect |
+  |---------|--------|
+  | ✋ **Open palm** (fingers extended) | an outward **shockwave / aura** radiating from the palm |
+  | ✊ **Fist** (all fingers curled) | an inward **vortex** that sucks particles in and spins them into a knot — open your hand to fling them out |
+  | 🤏 **Pinch** (thumb to index, "OK" sign) | a sharp localized **spark** burst |
+  | ✋✋ **Two open palms** | a turbulent **energy bridge** between your hands |
+
+  The recognised gesture name is shown live under the camera preview.
+- The webcam is **analyzed locally only** — frames never leave your machine, and no
+  audio is requested by this mode.
+- Tuning lives in `injectHandForces()` / the `hand*` and `gesture*` constants in
+  `js/fluid-field.js`; the capture + landmark + pose pipeline is `js/hand-tracker.js`.
+
 ---
 
 ## 7. Browser permissions and limitations
@@ -143,6 +181,10 @@ Keep the `js/` folder next to `index.html`; the script paths are relative.
 - **Mobile support is limited** in general: autoplay restrictions, no system capture, and reduced particle counts.
 - **YouTube / Spotify embeds generally cannot be analyzed directly** due to cross-origin and DRM restrictions. To visualize them, use **System audio mode** and share that tab, or play through your speakers and use **Microphone mode**.
 - **Upload and microphone modes are the most reliable** across browsers.
+- **Hand control** needs **camera permission** (granted on a secure context — `https://`
+  or `http://localhost`; most browsers also treat `file://` as secure) and **internet on
+  first use** to fetch the MediaPipe runtime + model. Frames are processed locally and
+  never uploaded. It runs **independently of and simultaneously with** the audio source.
 
 ---
 
@@ -287,7 +329,7 @@ A few smooth, non-random global motions sit underneath the speakers:
 | Band | Effect on the fluid |
 |------|---------------------|
 | **Sub-bass** | slow global "breathing" pressure — a gentle radial in/out over the whole field |
-| **Low-mid** | smooth, slowly-rotating directional drift current |
+| **Low-mid** | a gentle, screen-wide **rotational current** (a slow whirlpool) around a drifting "eye," whose spin eases back and forth — it keeps particles circulating through the frame instead of being swept into a corner |
 | **Mid / Flux** | raise **vorticity confinement**, so swirls and eddies stay crisp (`vorticityStrength = baseVorticity + mid·midGain + flux·fluxGain`) |
 | **High-mid** | amplifies the ambient procedural curl-noise (shear / turbulence) |
 | **Centroid** | sets the wave **pitch** (above) and the fluid **viscosity** (`viscosity = mix(highViscosity, lowViscosity, energyNorm)`) |
@@ -416,6 +458,7 @@ The confinement strength itself scales with the music: `vorticityStrength = base
 | Visual intensity | scales how hard audio drives the fluid (0–0.5) |
 | Particle density | Low / Med / High / Ultra / Max particle count |
 | Merge animation | turn the periodic speaker-bonding animation On / Off |
+| Hand control | turn camera hand-tracking On / Off (runs alongside the audio) |
 | ⤢ (fullscreen) | toggle fullscreen |
 | × (hide) | hide the panel; a "Show panel" button appears |
 
@@ -423,6 +466,14 @@ The confinement strength itself scales with the music: `vorticityStrength = base
 
 - **Drag** on the field to stir the fluid (a local vortex follows the cursor).
 - **Press / click** for a radial pressure burst and a dye splash.
+
+**Hands (camera)**
+
+- **Move** a hand to drag the fluid; fingertips and palm each stir their own eddy.
+- **Hold still** and the field keeps swirling gently around the hand.
+- **Gestures:** ✋ **open palm** → outward aura shockwave · ✊ **fist** → inward vortex
+  (open up to fling particles out) · 🤏 **pinch / "OK"** → spark burst · ✋✋ **two open
+  palms** → energy bridge between them. The current gesture is named under the preview.
 
 **Keyboard shortcuts**
 
@@ -434,6 +485,7 @@ The confinement strength itself scales with the music: `vorticityStrength = base
 | `M` | switch to microphone mode |
 | `U` | switch to upload mode |
 | `S` | start system / tab audio capture |
+| `G` | toggle hand control (camera) |
 | `B` | trigger the speaker bonding animation now |
 
 ---
@@ -451,7 +503,7 @@ Most tuning lives in clearly-labeled config objects.
 | **Vorticity strength** | `config.vorticity`, `config.midVortGain`, `config.fluxVortGain` in `js/fluid-field.js` |
 | **Speaker waves** | the `wave*` / `speaker*` values in `FluidField.config` (amplitude, wavelength/pitch, speed, radius, separation) |
 | **Bonding animation** | `this.bond` in `js/fluid-field.js` — `minGap`/`maxGap` (5–10 min window), `approach`/`merged`/`separate` durations, `turns`; and the `merge*` gains in `config` |
-| **Other force strengths** | the remaining `*Gain` values in `FluidField.config` (sub-bass breathing, low-mid drift, dye, pointer, …) |
+| **Other force strengths** | the remaining `*Gain` values in `FluidField.config` (sub-bass breathing, low-mid whirlpool, dye, pointer, hand gestures, …) |
 | **Color stops** | `COLOR_STOPS` in `js/color-mapper.js` |
 | **Temperature coefficients** | `config.coeff` in `js/particle-system.js` |
 | **Brightness** | `CONFIG.brightness` (master) and `CONFIG.velRef` in `js/app.js`; the particle `alpha` cap in `js/particle-system.js` |
@@ -483,7 +535,9 @@ Most tuning lives in clearly-labeled config objects.
 | **System audio not available** | Your browser doesn't support `getDisplayMedia` audio, or you didn't tick **"Share audio."** Try a recent desktop Chromium browser and share a **tab**. |
 | **No audio detected / flat visuals** | Nothing is actually playing into the chosen source. In Upload mode press Play; in Mic mode raise input volume; in System mode confirm the shared surface is producing sound. |
 | **Upload format unsupported** | Use a browser-supported format (MP3, WAV, OGG, M4A/AAC). |
-| **Low frame rate** | Lower **Particle density**, reduce `CONFIG.targetGridW`, or lower `pressureIterations`. |
+| **Hand control won't turn on** | Allow **camera** permission and use a secure context (`localhost`/HTTPS, or `file://`). The first activation also needs **internet** to fetch the MediaPipe model — the preview caption shows the specific error. |
+| **Hand tracked but fluid barely reacts** | Raise **Visual intensity**, or bump the `hand*` constants in `js/fluid-field.js`. Ensure your hand is well lit and fully in frame. |
+| **Low frame rate** | Lower **Particle density**, reduce `CONFIG.targetGridW`, or lower `pressureIterations`. Hand tracking also adds load — turn it off if not needed. |
 | **Fullscreen blocked** | Some browsers require a direct user gesture; click ⤢ instead of using the shortcut, and check site permissions. |
 | **Browser permission problems** | Reset site permissions for mic/screen capture, reload, and serve over a secure context. |
 

@@ -48,6 +48,10 @@
         intensity: $("intensity"),
         densityBtns: document.querySelectorAll("[data-density]"),
         mergeBtns: document.querySelectorAll("[data-merge]"),
+        handBtns: document.querySelectorAll("[data-hand]"),
+        handPreview: $("handPreview"),
+        handStatus: $("handStatus"),
+        handGestures: $("handGestures"),
         fullscreenBtn: $("fullscreenBtn"),
         hideBtn: $("hideBtn"),
         systemNote: $("systemNote"),
@@ -56,6 +60,7 @@
       };
 
       this.mode = "upload";
+      this.handOn = false;
       this._wire();
     }
 
@@ -108,6 +113,12 @@
         });
       });
 
+      // Hand control: the app confirms success (camera may be blocked), so we
+      // don't flip the buttons here — setHandActive() reflects the real state.
+      d.handBtns.forEach((btn) => {
+        btn.addEventListener("click", () => this.h.onHandToggle(btn.dataset.hand === "on"));
+      });
+
       d.fullscreenBtn.addEventListener("click", () => this.toggleFullscreen());
       d.hideBtn.addEventListener("click", () => this.togglePanel(false));
       d.restoreBtn.addEventListener("click", () => this.togglePanel(true));
@@ -124,6 +135,7 @@
         case "m": this.setMode("mic"); break;
         case "u": this.setMode("upload"); break;
         case "s": this.setMode("system"); break;
+        case "g": this.h.onHandToggle(!this.handOn); break;
         case "b": if (this.h.onTriggerMerge) this.h.onTriggerMerge(); break;
         case " ":
           if (this.mode === "upload") { e.preventDefault(); this.h.onTogglePlay(); }
@@ -183,6 +195,20 @@
 
     setPlaying(playing) {
       if (this.dom.playIcon) this.dom.playIcon.textContent = playing ? "❚❚" : "▶";
+    }
+
+    /* ---------------- Hand control ---------------- */
+    // Reflect the real tracking state (called by the app after start/stop).
+    setHandActive(on) {
+      this.handOn = on;
+      this.dom.handBtns.forEach((b) =>
+        b.classList.toggle("is-active", (b.dataset.hand === "on") === on));
+      if (this.dom.handPreview) this.dom.handPreview.hidden = !on;
+      if (this.dom.handGestures) this.dom.handGestures.hidden = !on;
+    }
+
+    setHandStatus(text) {
+      if (this.dom.handStatus) this.dom.handStatus.textContent = text;
     }
 
     setTrackName(name) { this.dom.trackName.textContent = name; }

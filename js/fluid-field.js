@@ -120,7 +120,8 @@
 
         // Smooth, non-random global motions
         subBreathGain: 16,   // sub-bass: slow global breathing pressure
-        lowMidGain: 12,      // low-mid: smooth directional drift
+        lowMidGain: 30,      // low-mid: gentle screen-wide rotational current
+        driftTurnRate: 0.11, // how fast that whirlpool eases its spin back & forth
         dyeGain: 0.9,        // rms-driven dye
         sparkleDyeGain: 0.6, // treble-driven dye sparkle
 
@@ -129,6 +130,30 @@
         pointerSwirl: 130,   // local vortex around the pointer
         pointerBurst: 150,   // radial burst on press
         pointerRadius: 95,   // px
+
+        // Hand-tracking interaction (camera). Runs alongside the audio.
+        // The swirl + dye terms are CONSTANT (not motion-dependent), so a hand
+        // that is simply held up still keeps the fluid breathing around it.
+        handDrag: 6,         // force along finger / palm motion
+        handSwirl: 70,       // steady fingertip vortex (idle stir)
+        handPalmSwirl: 120,  // broader, steady palm vortex
+        handDye: 0.02,       // faint per-frame fingertip dye (a hint at rest)
+        handPalmDye: 0.035,  // palm glow per frame
+        handBurst: 150,      // pinch → radial burst
+        handRadius: 55,      // fingertip footprint (px)
+        handPalmRadius: 110, // palm footprint (px)
+
+        // Hand GESTURE animations — big deliberate poses → showy effects.
+        // (Sized to the detected hand; strength is floored so they pop even
+        // when the visual-intensity slider is low — see injectHandForces.)
+        gestureOpenPush: 240,    // ✋ open palm → outward shockwave / aura
+        gestureOpenDye: 0.9,     // ✋ bright bloom
+        gestureFistPull: 210,    // ✊ fist → inward vacuum (negative burst)
+        gestureFistSwirl: 320,   // ✊ tight gather-swirl that knots the inflow
+        gestureFistDye: 0.5,
+        gesturePinchBurst: 340,  // 🤏 pinch → sharp localized spark
+        gesturePinchDye: 1.6,
+        gestureBridgeSwirl: 170, // ✋✋ two open palms → turbulent energy bridge
 
         // Merge / bonding animation (deliberately kept dim & moderate).
         mergeSwirl: 95,      // rotation of the merged colored "flower"
@@ -406,18 +431,6 @@
       }
     }
 
-    // Uniform directional drift added to the whole interior.
-    _uniformPush(fx, fy) {
-      const W = this.W, H = this.H;
-      for (let j = 1; j < H - 1; j++) {
-        for (let i = 1; i < W - 1; i++) {
-          const idx = i + j * W;
-          this.u[idx] += fx;
-          this.v[idx] += fy;
-        }
-      }
-    }
-
     /* =========================================================
        TWO-SPEAKER WAVE EMITTER
        A single invisible circular "speaker" at (sx, sy) radiating a
@@ -552,10 +565,20 @@
       const breath = Math.sin(t * 0.7) * A.sub * C.subBreathGain * g * f;
       if (Math.abs(breath) > 0.01) this._radialBurst(cx, cy, breath, base * 0.95);
 
-      // --- Low-mid: smooth slow directional drift current ---
-      const driftAng = t * 0.05;
-      const drift = A.lowMid * C.lowMidGain * g * f;
-      if (drift > 0.005) this._uniformPush(Math.cos(driftAng) * drift, Math.sin(driftAng) * drift);
+      // --- Low-mid: a gentle, screen-wide ROTATIONAL current (slow whirlpool) ---
+      // This used to be a *uniform* push, which behaves like a constant wind:
+      // a uniform field is divergence-free, so projection never cancels it and
+      // it swept every particle into one slowly-migrating corner. A rotation
+      // keeps the field circulating around a drifting "eye" instead — particles
+      // swirl through the frame and never pile up at an edge. The spin eases
+      // back and forth (no abrupt flips) so the motion stays alive.
+      const swirl = A.lowMid * C.lowMidGain * g * f;
+      if (swirl > 0.004) {
+        const spin = Math.sin(t * C.driftTurnRate);            // smooth reversal
+        const ex = cx + Math.cos(t * 0.07) * W * 0.10;         // eye wanders gently…
+        const ey = cy + Math.sin(t * 0.09) * H * 0.10;         // …but stays well inside
+        this._swirl(ex, ey, swirl * spin, Math.hypot(W, H) * 0.62); // reaches the corners
+      }
     }
 
     /* =========================================================
@@ -577,6 +600,77 @@
         this._radialBurst(pointer.x, pointer.y, C.pointerBurst * g, C.pointerRadius * 1.6);
         this.addDye(pointer.x, pointer.y, 1.6, C.pointerRadius);
       }
+    }
+
+    /* =========================================================
+       HAND -> FLUID coupling (camera / MediaPipe)
+       hands: [{ palm, tips, span, pose }]
+         palm  : { x, y, px, py }            smoothed palm anchor (screen px)
+         tips  : [{ x, y, px, py, spin }]    5 fingertips (thumb→pinky)
+         span  : hand size in px (scales the gesture footprints)
+         pose  : "neutral" | "open" | "fist" | "pinch"
+       Every point always does a gentle stir (so a still hand keeps the
+       fluid breathing); the recognised POSE adds a showpiece animation.
+       ========================================================= */
+    injectHandForces(hands) {
+      if (!hands || !hands.length) return;
+      const C = this.config;
+      const g = this.forceGain;
+      const f = this.dt * 60;                 // frame-rate normalization
+      const gp = Math.max(g, 0.45);           // gesture floor — poses pop even at low intensity
+
+      for (let h = 0; h < hands.length; h++) {
+        const hand = hands[h];
+        const palm = hand.palm;
+        const span = hand.span || 120;
+
+        // --- Baseline stir at the palm + each fingertip (works even at rest) ---
+        this._handStir(palm, true, +1, g, f, C);
+        for (let i = 0; i < hand.tips.length; i++) {
+          const tip = hand.tips[i];
+          this._handStir(tip, false, tip.spin, g, f, C);
+        }
+
+        // --- Pose-driven showpiece animations ---
+        if (hand.pose === "open") {
+          // ✋ Aura: an outward shockwave + bright bloom radiating from the palm.
+          const R = clamp(span * 1.6, 110, 380);
+          this._radialBurst(palm.x, palm.y, C.gestureOpenPush * gp * f, R);
+          this.addDye(palm.x, palm.y, C.gestureOpenDye * f, R * 0.8);
+        } else if (hand.pose === "fist") {
+          // ✊ Vortex: suck particles inward and spin them into a tight knot.
+          const R = clamp(span * 1.3, 90, 320);
+          this._radialBurst(palm.x, palm.y, -C.gestureFistPull * gp * f, R);   // inward
+          this._swirl(palm.x, palm.y, C.gestureFistSwirl * gp * f, R * 0.7);
+          this.addDye(palm.x, palm.y, C.gestureFistDye * f, R * 0.5);
+        } else if (hand.pose === "pinch") {
+          // 🤏 Spark: a sharp burst at the pinch point (thumb–index midpoint).
+          const t0 = hand.tips[0], t1 = hand.tips[1];
+          const sx = (t0.x + t1.x) * 0.5, sy = (t0.y + t1.y) * 0.5;
+          const R = clamp(span * 0.5, 45, 150);
+          this._radialBurst(sx, sy, C.gesturePinchBurst * gp * f, R);
+          this.addDye(sx, sy, C.gesturePinchDye * f, R * 0.7);
+        }
+      }
+
+      // --- ✋✋ Two open palms: a turbulent "energy bridge" between the hands ---
+      if (hands.length === 2 && hands[0].pose === "open" && hands[1].pose === "open") {
+        const a = hands[0].palm, b = hands[1].palm;
+        const mx = (a.x + b.x) * 0.5, my = (a.y + b.y) * 0.5;
+        const R = clamp(Math.hypot(a.x - b.x, a.y - b.y) * 0.45, 80, 420);
+        this._swirl(mx, my, C.gestureBridgeSwirl * gp * f, R);
+        this.addDye(mx, my, C.gestureOpenDye * 0.6 * f, R * 0.7);
+      }
+    }
+
+    // One stir point's gentle baseline contribution (drag + steady swirl + dye).
+    _handStir(p, isPalm, spin, g, f, C) {
+      const radius = isPalm ? C.handPalmRadius : C.handRadius;
+      const dvx = p.x - p.px, dvy = p.y - p.py;
+      this.addForce(p.x, p.y, dvx * C.handDrag * g, dvy * C.handDrag * g, radius);
+      const swirl = (isPalm ? C.handPalmSwirl : C.handSwirl) * (spin || 1);
+      this._swirl(p.x, p.y, swirl * g * f, radius);
+      this.addDye(p.x, p.y, (isPalm ? C.handPalmDye : C.handDye) * f, radius);
     }
 
     /* =========================================================
@@ -776,7 +870,7 @@
     /* =========================================================
        STEP — the full stable-fluids pipeline for one frame.
        ========================================================= */
-    step(dt, audio, pointer) {
+    step(dt, audio, pointer, hands) {
       this.dt = dt;
       this.time += dt;
       const C = this.config;
@@ -794,6 +888,7 @@
       // 1. ADD FORCES (audio emitters, pointer, procedural turbulence, vorticity)
       if (audio) this.injectAudioForces(audio);
       if (pointer) this.injectPointerForces(pointer);
+      if (hands) this.injectHandForces(hands);
       this._applyProceduralTurbulence();
       this.computeCurl();
       this._applyVorticityConfinement();

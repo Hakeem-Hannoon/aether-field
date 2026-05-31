@@ -18,7 +18,7 @@
 (function (Aether) {
   "use strict";
 
-  const { ColorMapper, FluidField, FeatureExtractor, AudioEngine, ParticleSystem, UIController } = Aether;
+  const { ColorMapper, FluidField, FeatureExtractor, AudioEngine, ParticleSystem, UIController, HandTracker } = Aether;
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 
   const isMobile =
@@ -68,6 +68,11 @@
   const audioEngine = new AudioEngine();
   const audioEl = document.getElementById("audio");
 
+  // Hand tracking (camera) — independent input that runs alongside audio.
+  const handTracker = new HandTracker();
+  const handVideo = document.getElementById("handVideo");
+  const handOverlay = document.getElementById("handOverlay");
+
   let fluid = null;
   let featureExtractor = null;
 
@@ -106,6 +111,7 @@
     }
     _syncGlowCanvas();
     particles.setView(state.width, state.height);
+    handTracker.setView(state.width, state.height);
   }
 
   function _syncGlowCanvas() {
@@ -197,9 +203,10 @@
       features = IDLE_FEATURES;
     }
 
-    // 2. Fluid step
+    // 2. Fluid step (audio emitters + mouse/touch pointer + hand stir points)
     fluid.forceGain = state.intensity;
-    fluid.step(dt, features, pointer.active ? pointer : null);
+    const hands = handTracker.active ? handTracker.update() : null;
+    fluid.step(dt, features, pointer.active ? pointer : null, hands);
     pointer.px = pointer.x; pointer.py = pointer.y;
 
     // 3. Particle advection
@@ -333,6 +340,25 @@
     onMergeToggle(on) { if (fluid) fluid.setBondEnabled(on); },
     onTriggerMerge() { if (fluid) fluid.triggerBond(); },
 
+    // Hand control is a toggle that lives ALONGSIDE the audio source — turning
+    // it on/off never touches playback. The camera + model load lazily here.
+    async onHandToggle(on) {
+      // start()/stop() are idempotent and re-entrancy-guarded, so it's safe to
+      // call these even while a previous start is still loading the model.
+      if (on) {
+        ui.setHandActive(true);                 // reveal the preview while we start
+        try {
+          await handTracker.start(handVideo, handOverlay);
+        } catch (e) {
+          ui.setHandActive(false);
+          ui.setStatus("blocked", handTracker.errorText(e));
+        }
+      } else {
+        handTracker.stop();
+        ui.setHandActive(false);
+      }
+    },
+
     async onMode(mode) {
       state.mode = mode;
       if (mode === "upload") {
@@ -416,6 +442,8 @@
     resize();
     rebuildParticles();
     ui = new UIController(handlers);
+    // Route hand-tracker status messages into the camera preview caption.
+    handTracker.onStatus = (text) => ui.setHandStatus(text);
     // HTML sliders are the source of truth for their defaults.
     audioEl.volume = parseFloat(document.getElementById("volume").value || "0.25");
     state.intensity = parseFloat(document.getElementById("intensity").value || "0.25");
