@@ -62,6 +62,11 @@
       this.mode = "upload";
       this.handOn = false;
       this._wire();
+
+      // Paint the initial fill of every slider (the CSS track is unfilled).
+      this._paintRange(this.dom.volume);
+      this._paintRange(this.dom.intensity);
+      this._paintSeek(0);
     }
 
     _wire() {
@@ -94,8 +99,14 @@
         this.scrubbing = false;
       });
 
-      d.volume.addEventListener("input", (e) => h.onVolume(parseFloat(e.target.value)));
-      d.intensity.addEventListener("input", (e) => h.onIntensity(parseFloat(e.target.value)));
+      d.volume.addEventListener("input", (e) => {
+        this._paintRange(d.volume);
+        h.onVolume(parseFloat(e.target.value));
+      });
+      d.intensity.addEventListener("input", (e) => {
+        this._paintRange(d.intensity);
+        h.onIntensity(parseFloat(e.target.value));
+      });
 
       d.densityBtns.forEach((btn) => {
         btn.addEventListener("click", () => {
@@ -234,11 +245,20 @@
       this._paintSeek(frac);
     }
 
-    _paintSeek(frac) {
-      const pct = (frac * 100).toFixed(1) + "%";
-      this.dom.seek.style.background =
+    // Paint a slider's cyan→violet fill up to `frac` (derived from the
+    // element's value/min/max when omitted).
+    _paintRange(el, frac) {
+      if (frac === undefined) {
+        const min = parseFloat(el.min) || 0;
+        const max = parseFloat(el.max) || 1;
+        frac = ((parseFloat(el.value) || 0) - min) / (max - min || 1);
+      }
+      const pct = (Math.max(0, Math.min(1, frac)) * 100).toFixed(1) + "%";
+      el.style.background =
         `linear-gradient(90deg, var(--cyan) 0%, var(--violet) ${pct}, rgba(255,255,255,0.12) ${pct})`;
     }
+
+    _paintSeek(frac) { this._paintRange(this.dom.seek, frac); }
 
     // Rebuild the queue list. items = [{name}], current = index (or -1).
     renderQueue(items, current) {

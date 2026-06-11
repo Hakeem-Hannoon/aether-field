@@ -96,6 +96,12 @@ body {
   background: radial-gradient(120% 120% at 50% 50%, transparent 58%, rgba(0, 0, 0, 0.66) 100%);
 }
 
+/* Grain + vignette sit ABOVE the canvas (z=1) so they grade the final
+   rendered image; the gradient + glow stay below and show through the
+   canvas's transparent regions. */
+.bg-grain,
+.bg-vignette { z-index: 2; }
+
 /* ---------- Canvas ---------- */
 #field {
   position: fixed;
@@ -115,6 +121,11 @@ body {
   z-index: 10;
   width: 312px;
   max-width: calc(100vw - 44px);
+  /* Never taller than the viewport: the body scrolls instead of overflowing. */
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 44px);
+  max-height: calc(100dvh - 44px);
   padding: 20px 20px 14px;
   border-radius: var(--radius);
   background: var(--glass);
@@ -132,7 +143,7 @@ body {
   to   { opacity: 1; transform: translateY(0); }
 }
 
-.panel-head { margin-bottom: 16px; }
+.panel-head { margin-bottom: 16px; flex: 0 0 auto; }
 
 .head-row {
   display: flex;
@@ -180,7 +191,24 @@ body {
   letter-spacing: 0.02em;
 }
 
-.panel-body { display: flex; flex-direction: column; gap: 16px; }
+.panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;             /* allow this flex child to shrink and scroll */
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(140, 170, 255, 0.3) transparent;
+}
+.panel-body::-webkit-scrollbar,
+.queue::-webkit-scrollbar { width: 6px; }
+.panel-body::-webkit-scrollbar-thumb,
+.queue::-webkit-scrollbar-thumb {
+  background: rgba(140, 170, 255, 0.28);
+  border-radius: 6px;
+}
+.panel-body::-webkit-scrollbar-track,
+.queue::-webkit-scrollbar-track { background: transparent; }
 
 /* Segmented controls (mode + density) */
 .seg {
@@ -369,13 +397,15 @@ body {
   color: var(--ink-dim);
 }
 
+/* Unfilled track by default; the JS paints the cyan→violet fill up to the
+   current value (otherwise every slider reads as "100%" no matter its value). */
 input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
   width: 100%;
   height: 4px;
   border-radius: 4px;
-  background: linear-gradient(90deg, var(--cyan), var(--violet));
+  background: rgba(255, 255, 255, 0.12);
   outline: none;
   cursor: pointer;
 }
@@ -481,9 +511,14 @@ input[type="range"]::-moz-range-thumb {
   box-shadow: 0 0 8px currentColor;
   transition: background 0.4s var(--ease), color 0.4s var(--ease);
 }
-.status-dot.is-playing   { background: var(--cyan);    color: var(--cyan); }
-.status-dot.is-listening { background: var(--amber);   color: var(--amber); }
+.status-dot.is-playing   { background: var(--cyan);    color: var(--cyan); animation: dotPulse 1.8s var(--ease) infinite; }
+.status-dot.is-listening { background: var(--amber);   color: var(--amber); animation: dotPulse 1.8s var(--ease) infinite; }
 .status-dot.is-blocked   { background: var(--magenta); color: var(--magenta); }
+
+@keyframes dotPulse {
+  0%, 100% { box-shadow: 0 0 6px currentColor; }
+  50%      { box-shadow: 0 0 16px currentColor; }
+}
 
 .status {
   font-size: 12px;
@@ -540,6 +575,9 @@ input[type="range"]::-moz-range-thumb {
     right: 14px;
     width: auto;
     max-width: none;
+    /* Bottom-pinned: cap height so the field stays visible above the panel. */
+    max-height: 62vh;
+    max-height: 62dvh;
     padding: 15px 15px 11px;
     border-radius: 16px;
   }
@@ -554,5 +592,5 @@ input[type="range"]::-moz-range-thumb {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .bg-glow, .bg-grain, .panel { animation: none; }
+  .bg-glow, .bg-grain, .panel, .status-dot { animation: none; }
 }

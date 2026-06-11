@@ -89,6 +89,7 @@
       this.lastOnset = 0;
       this.onsetCooldownMs = 110;
       this.thresholdMultiplier = 1.6;
+      this._onsetEnv = 0;   // decaying beat envelope (so a kick lasts ~0.3s, not 1 frame)
 
       // Precompute the [startBin, endBin] index ranges for each band.
       this.bandBins = {};
@@ -126,6 +127,7 @@
       F.energy += (0 - F.energy) * k * 0.5;
       F.onset = 0;
       F.onsetStrength = 0;
+      this._onsetEnv = 0;
       return F;
     }
 
@@ -209,7 +211,12 @@
       F.energy += (rms - F.energy) * kSlow;
 
       F.onset = onset;
-      F.onsetStrength = onsetStrength;
+      // The raw onset is a single-frame spike; the forces it drives
+      // (waveAmpOnset, repelOnset) would act for ~16ms and be invisible.
+      // Hold it in a short exponential envelope so each beat lands as a
+      // readable punch in the fluid.
+      this._onsetEnv = Math.max(this._onsetEnv * Math.exp(-dt * 6), onsetStrength);
+      F.onsetStrength = this._onsetEnv;
       F.centroidHz = centroidHz;
       return F;
     }

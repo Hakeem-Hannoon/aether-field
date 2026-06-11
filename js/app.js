@@ -28,8 +28,11 @@
   const CONFIG = {
     targetGridW: isMobile ? 84 : 132,   // sim grid width (96..180 range honored on desktop)
     dprCap: isMobile ? 1.5 : 2,
-    density: { low: 1000, medium: 5000, high: 10000, extra_high: 25000, too_much: 55000}, // particles per megapixel
-    maxParticles: isMobile ? 800 : 2600,
+    // Particles per megapixel. The cap below must stay ABOVE the top tiers ×
+    // a typical screen area, otherwise every tier clamps to the same count
+    // and the density buttons do nothing.
+    density: { low: 700, medium: 1800, high: 3600, extra_high: 6500, too_much: 11000 },
+    maxParticles: isMobile ? 2600 : 22000,
     trailFade: 0.14,
     brightness: 1.0,                     // master brightness dial (lower = dimmer everything)
     fieldGlowAlpha: 0.16,                // strength of the low-res plasma layer (lower = dimmer)
@@ -38,7 +41,6 @@
     // white); only the fastest streaks go hot, the rest stay cool & colorful.
     velRef: 520,
     vortRef: 7,
-    bg: [4, 5, 11],
   };
 
   // Feature vector used before any audio is activated (calm idle drift).
@@ -212,11 +214,14 @@
     // 3. Particle advection
     particles.update(dt, fluid, features);
 
-    // 4. Render
+    // 4. Render — fade trails toward TRANSPARENT (destination-out) rather than
+    // painting an opaque color: the canvas stays see-through where nothing
+    // glows, so the layered CSS background (gradient + breathing glow) shows
+    // through behind the particles instead of being covered by a black plate.
     const fade = CONFIG.trailFade + features.energy * 0.10;
-    ctx.globalCompositeOperation = "source-over";
+    ctx.globalCompositeOperation = "destination-out";
     ctx.globalAlpha = 1;
-    ctx.fillStyle = `rgba(${CONFIG.bg[0]},${CONFIG.bg[1]},${CONFIG.bg[2]},${fade})`;
+    ctx.fillStyle = `rgba(0,0,0,${fade})`;
     ctx.fillRect(0, 0, state.width, state.height);
 
     ctx.globalCompositeOperation = "lighter";

@@ -11,17 +11,21 @@
    where |u| is local velocity magnitude, |ω| is local vorticity,
    and treble / flux / centroid are normalized audio features.
 
-   The gradient runs cold -> hot using the required color stops:
+   The gradient runs cold -> hot using the color stops:
 
        0.00  deep blue
        0.12  violet
        0.25  electric blue
        0.38  cyan
-       0.50  green
-       0.62  pink
+       0.50  spring green
+       0.62  gold
        0.74  orange
-       0.86  red
+       0.86  hot pink
        1.00  white-gold
+
+   Adjacent stops are deliberately hue-neighbors: linear RGB blending
+   between near-complementary colors (e.g. green -> pink) passes
+   through a desaturated gray that reads as mud on screen.
 
    Colors are pre-baked into a 256-entry lookup table (LUT) once,
    then sampled per particle per frame — no per-frame color math,
@@ -41,10 +45,10 @@
     [0.12, [92, 40, 214]],   // violet
     [0.25, [40, 120, 255]],  // electric blue
     [0.38, [38, 222, 255]],  // cyan
-    [0.50, [54, 238, 150]],  // green
-    [0.62, [255, 96, 196]],  // pink
+    [0.50, [54, 238, 150]],  // spring green
+    [0.62, [252, 222, 90]],  // gold
     [0.74, [255, 150, 54]],  // orange
-    [0.86, [255, 58, 58]],   // red
+    [0.86, [255, 70, 130]],  // hot pink
     [1.00, [255, 240, 205]], // white-gold
   ];
 

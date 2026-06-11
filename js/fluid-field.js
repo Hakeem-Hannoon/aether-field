@@ -91,7 +91,7 @@
         // Two fixed, invisible circular "speakers" radiate pressure waves
         // into the liquid. One equation controls each speaker's wave:
         //
-        //   w(r,t) = A·[ sin(k·r − ω·t + φ) + H·0.5·sin(2.7k·r − 1.7ω·t + φ) ]·e^(−r²/2σ²)
+        //   w(r,t) = A·[ sin(k·r − ω·t + φ) + H·0.5·sin(2.7k·r − 1.7ω·t + φ) ]·(1 − (r/R)²)²
         //
         //   A (amplitude / intensity) = ampBase + rms·ampRms + bass·ampBass + onset·ampOnset
         //   k = 2π/λ,  λ = mix(λLarge, λSmall, centroid)   (pitch → ring spacing)

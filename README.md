@@ -2,7 +2,7 @@
 
 A browser-based mathematical music visualizer where particles are advected through an audio-reactive fluid field.
 
-This is motivated from the anmiations I used to stare at as a kid when I play music on my Windoes XP Media Player. Suggested song to play is this [remix of The Greatest](https://www.youtube.com/watch?v=yd8-nmLyYp0)
+This is motivated from the animations I used to stare at as a kid when I played music on my Windows XP Media Player. Suggested song to play is this [remix of The Greatest](https://www.youtube.com/watch?v=yd8-nmLyYp0)
 
 Website Link: [https://hakeem-hannoon.github.io/aether-field/](https://hakeem-hannoon.github.io/aether-field/)
 
@@ -403,12 +403,16 @@ with normalized velocity magnitude `|u|`, normalized vorticity `|ω|`, and the a
 0.12  violet
 0.25  electric blue
 0.38  cyan
-0.50  green
-0.62  pink
+0.50  spring green
+0.62  gold
 0.74  orange
-0.86  red
+0.86  hot pink
 1.00  white-gold
 ```
+
+Adjacent stops are deliberately hue-neighbors: blending near-complementary
+colors in RGB (e.g. green → pink) passes through a desaturated gray that
+reads as mud, so the ramp routes green → gold → orange instead.
 
 The stops are baked once into a 256-entry lookup table with **smoothstep** interpolation between neighbors, so the gradient is continuous and the color of a particle reflects the visible energy of the fluid around it. Colors are never randomly reassigned frame-to-frame — a slow, cool current stays blue; a fast, spinning, treble-rich region glows toward white-gold.
 
@@ -508,7 +512,7 @@ Most tuning lives in clearly-labeled config objects.
 | **Temperature coefficients** | `config.coeff` in `js/particle-system.js` |
 | **Brightness** | `CONFIG.brightness` (master) and `CONFIG.velRef` in `js/app.js`; the particle `alpha` cap in `js/particle-system.js` |
 | **Intensity defaults** | the `intensity` slider default in `index.html`; `state.intensity` in `js/app.js` |
-| **Background gradients** | the `.bg-*` rules in `styles.css` and `CONFIG.bg` (trail color) in `js/app.js` |
+| **Background gradients** | the `.bg-*` rules in `styles.css` (the canvas fades trails to transparent, so the CSS layers show through) |
 | **Trail length / glow** | `CONFIG.trailFade` and `CONFIG.fieldGlowAlpha` in `js/app.js` |
 | **UI text** | `index.html` |
 | **Keyboard shortcuts** | `_onKey()` in `js/ui-controller.js` |

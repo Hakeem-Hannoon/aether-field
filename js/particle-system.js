@@ -84,6 +84,7 @@
       p.speed = 0;
       p.phase = Math.random() * Math.PI * 2;
       p.life = 6 + Math.random() * 10; // seconds before recycling (keeps field fresh)
+      p.maxLife = p.life;              // for the spawn/death alpha fade
       return p;
     }
 
@@ -175,10 +176,14 @@
         // loud" factor is exactly what stacked (additively) into a white mess.
         // Brightness varies per particle (depth + local speed + dye) and is
         // hard-capped so overlapping cores can't blow out to pure white.
+        // Ease in over the first ~0.6s and out over the last ~0.8s of life so
+        // recycled particles never pop into / out of existence in one frame.
+        const age = p.maxLife - p.life;
+        const lifeFade = clamp(Math.min(age * 1.6, p.life * 1.2), 0, 1);
         const alpha = clamp(
           (0.07 + p.z * 0.26 + velN * 0.16 + dye * 0.10) * flicker * cfg.brightness,
           0, 0.85
-        );
+        ) * lifeFade;
 
         const half = size / 2;
         ctx.globalAlpha = alpha;
