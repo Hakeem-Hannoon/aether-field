@@ -78,6 +78,18 @@
 
         <!-- Playback queue -->
         <ul class="queue" id="queue" aria-label="Playback queue"></ul>
+
+        <!-- Copyright notice toggle -->
+        <div class="copyright-row">
+          <button class="btn-copyright" id="copyrightBtn" aria-expanded="false" title="Copyright notice">!</button>
+          <div class="copyright-notice" id="copyrightNotice" hidden>
+            <p>⚠ I do not own this music. Original sources:</p>
+            <ul class="copyright-list">
+              <li><span>Stereo Love 2 (Slowed)</span> — <a href="https://youtu.be/ydCLZTJUsKA?si=RPjr7EKieIirds4G" target="_blank" rel="noopener noreferrer">YouTube ↗</a></li>
+              <li><span>Don't Let Me Down</span> — <a href="https://youtu.be/hScJibb0-ns?si=Nli3H3z8jfb9jhsY" target="_blank" rel="noopener noreferrer">YouTube ↗</a></li>
+            </ul>
+          </div>
+        </div>
       </div>
 
       <!-- System-audio explanation (shown only in System mode) -->
@@ -166,5 +178,13 @@
   <script src="js/hand-tracker.js"></script>
   <script src="js/ui-controller.js"></script>
   <script src="js/app.js"></script>
+  <script>
+    document.getElementById("copyrightBtn").addEventListener("click", function () {
+      var notice = document.getElementById("copyrightNotice");
+      var expanded = this.getAttribute("aria-expanded") === "true";
+      notice.hidden = expanded;
+      this.setAttribute("aria-expanded", String(!expanded));
+    });
+  </script>
 </body>
 </html>

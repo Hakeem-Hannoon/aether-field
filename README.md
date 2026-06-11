@@ -547,7 +547,18 @@ Most tuning lives in clearly-labeled config objects.
 
 ---
 
-## 18. Credits and license
+## 18. Included tracks
+
+The following audio files are included in this repository for demonstration purposes. I do not own this music — all rights belong to the original artists and rights holders.
+
+| Track | Original |
+|-------|----------|
+| Stereo Love 2 (Slowed) | [YouTube ↗](https://youtu.be/ydCLZTJUsKA?si=RPjr7EKieIirds4G) |
+| Don't Let Me Down (The Chainsmokers ft. Daya — slowed & reverb) | [YouTube ↗](https://youtu.be/hScJibb0-ns?si=Nli3H3z8jfb9jhsY) |
+
+---
+
+## 19. Credits and license
 
 Built by Hakeem Hanoun.
 
