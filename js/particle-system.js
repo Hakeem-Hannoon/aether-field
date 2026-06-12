@@ -109,6 +109,7 @@
       const ps = this.particles;
       const out = this.scratch;
       const margin = 30;
+      const core = fluid.core && fluid.core.r > 0 ? fluid.core : null;
 
       for (let i = 0; i < ps.length; i++) {
         const p = ps[i];
@@ -120,6 +121,22 @@
 
         p.vx += (out.x - p.vx) * follow;
         p.vy += (out.y - p.vy) * follow;
+
+        // Black-hole gravity: the projection step removes most of a pure
+        // sink from the (incompressible) velocity field, so tracers get a
+        // small direct pull instead — they spiral inward on the accretion
+        // current and are consumed at the event horizon.
+        if (core) {
+          const cdx = core.x - p.x, cdy = core.y - p.y;
+          const cd = Math.hypot(cdx, cdy) || 1e-4;
+          if (cd < core.r * 0.95) {
+            this._respawnOutsideCore(p, w, h, core);  // crossed the horizon
+            continue;
+          }
+          const grav = core.pull * Math.pow(core.r / cd, 1.5);
+          p.vx += (cdx / cd) * grav * dt;
+          p.vy += (cdy / cd) * grav * dt;
+        }
 
         // Tiny treble jitter on near particles -> shimmering sparks.
         if (audio.treble > 0.1) {
@@ -141,6 +158,17 @@
         ) {
           this._makeParticle(w, h, p);
         }
+      }
+    }
+
+    // Respawn a particle consumed by the black hole, never inside it.
+    _respawnOutsideCore(p, w, h, core) {
+      this._makeParticle(w, h, p);
+      for (let tries = 0; tries < 8; tries++) {
+        const dx = p.x - core.x, dy = p.y - core.y;
+        if (dx * dx + dy * dy > core.r * core.r * 2.25) break; // > 1.5 r away
+        p.x = Math.random() * w;
+        p.y = Math.random() * h;
       }
     }
 

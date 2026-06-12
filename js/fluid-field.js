@@ -87,43 +87,45 @@
         turbBase: 2.2,
         turbHighMidGain: 30,
 
-        // ---- Two-speaker wave model -------------------------------------
-        // Two fixed, invisible circular "speakers" radiate pressure waves
-        // into the liquid. One equation controls each speaker's wave:
+        // ---- Black-hole core --------------------------------------------
+        // A dark ball sits at the center of the field. Its SURFACE is a
+        // circular spectrum analyzer: every direction on the rim owns one
+        // frequency band (bass at the bottom, treble at the top, mirrored
+        // left/right), and that band's actual FFT energy m_b radiates a
+        // traveling pressure wave into the liquid from the surface:
         //
-        //   w(r,t) = A·[ sin(k·r − ω·t + φ) + H·0.5·sin(2.7k·r − 1.7ω·t + φ) ]·(1 − (r/R)²)²
+        //   w_b(r,t) = A · m_b · sin(k_b·r − ω_b·t) · (1 − r/reach)²
         //
-        //   A (amplitude / intensity) = ampBase + rms·ampRms + bass·ampBass + onset·ampOnset
-        //   k = 2π/λ,  λ = mix(λLarge, λSmall, centroid)   (pitch → ring spacing)
-        //   ω = omegaBase + energy·omegaGain               (wave propagation speed)
-        //   H = clamp(highMid + treble + flux, 0, 1)        (harshness: rock/scream vs calm)
-        speakerSep: 0.22,    // horizontal offset of each speaker from center (× width)
-        waveRadius: 0.62,    // speaker influence radius (× min(w,h))
-        waveAmpBase: 2,      // quiet baseline amplitude
-        waveAmpRms: 26,      // loudness → amplitude
-        waveAmpBass: 40,     // bass → amplitude (the "thump")
-        waveAmpOnset: 70,    // beats → amplitude punch
-        waveLambdaLarge: 440,// warm/low pitch → big slow swells (px)
-        waveLambdaSmall: 90, // bright/high pitch → tight fast ripples (px)
-        waveOmegaBase: 3.0,  // base wave speed (rad/s)
-        waveOmegaGain: 7.0,  // energy → faster waves
-
-        // Speaker repulsion: a steady outward push that shoves particles away
-        // from each speaker. Strength rises with loudness; the reach (radius)
-        // is set by pitch — warm/low sounds push broadly, bright/high sounds
-        // push in a tight zone.
-        repelRms: 14,        // loudness → repulsion strength
-        repelBass: 26,       // bass → repulsion strength
-        repelOnset: 42,      // beats → repulsion kick
-        repelRadiusLarge: 0.48, // warm/low pitch → broad push (× min(w,h))
-        repelRadiusSmall: 0.22, // bright/high pitch → tight push
+        //   A (master amplitude) = ampBase + rms·ampRms + bass·ampBass + onset·ampOnset
+        //   k_b = 2π/λ_b,  λ_b = mix(λLarge, λSmall, band)   (bass swells, treble ripples)
+        //   ω_b = (omegaBase + energy·omegaGain)·(0.8 + 0.7·band)  (treble travels faster)
+        //
+        // The ball also pulls fluid + particles inward like gravity, spins a
+        // slow accretion current around itself, and consumes any particle
+        // that crosses the event horizon (see particle-system.js).
+        coreRadius: 0.105,    // event-horizon radius (× min(w,h))
+        coreReach: 0.55,      // how far surface waves radiate (× min(w,h))
+        coreAmpBase: 1.2,     // quiet baseline wave amplitude
+        coreAmpRms: 18,       // loudness → wave amplitude
+        coreAmpBass: 24,      // bass → wave amplitude (the "thump")
+        coreAmpOnset: 55,     // beats → amplitude punch
+        waveLambdaLarge: 460, // bass end: big slow swells (px)
+        waveLambdaSmall: 80,  // treble end: tight fast ripples (px)
+        waveOmegaBase: 3.2,   // base wave speed (rad/s)
+        waveOmegaGain: 7.0,   // energy → faster waves
+        // NOTE: the swirl/pull forces are added EVERY frame and only decay
+        // through velocityDissipation, so their equilibrium speed is roughly
+        // strength·60/dissipation — keep them small or the whole field goes
+        // past velRef and washes out to white.
+        corePull: 26,         // inward gravity on the fluid (scaled by energy)
+        corePullParticles: 80,// inward drift on particle tracers (px/s² at the rim)
+        coreSwirl: 3,         // baseline accretion rotation around the hole
+        coreSwirlLowMid: 14,  // low-mid energy → faster accretion spin
+        coreDye: 0.35,        // spectrum energy → dye glow at the surface
 
         // Smooth, non-random global motions
         subBreathGain: 16,   // sub-bass: slow global breathing pressure
-        lowMidGain: 30,      // low-mid: gentle screen-wide rotational current
-        driftTurnRate: 0.11, // how fast that whirlpool eases its spin back & forth
-        dyeGain: 0.9,        // rms-driven dye
-        sparkleDyeGain: 0.6, // treble-driven dye sparkle
+        driftTurnRate: 0.11, // how fast the accretion spin eases between speeds
 
         // Pointer interaction
         pointerDrag: 7,      // force along pointer movement
@@ -155,25 +157,26 @@
         gesturePinchDye: 1.6,
         gestureBridgeSwirl: 170, // ✋✋ two open palms → turbulent energy bridge
 
-        // Merge / bonding animation (deliberately kept dim & moderate).
-        mergeSwirl: 95,      // rotation of the merged colored "flower"
+        // Flare animation (deliberately kept dim & moderate).
+        mergeSwirl: 95,      // rotation of the flare's colored "flower"
         mergePulse: 42,      // gentle radial pulses of the arms
-        mergeDye: 0.5,       // colored dye injected while merged
+        mergeDye: 0.28,      // colored dye injected at full flare
         mergeArms: 5,        // number of spiral arms
       };
 
-      // ---- Bonding animation state (see updateBond) ----
-      // Every few minutes the two speakers spiral toward the center of mass,
-      // collide into a colored swirl for exactly `merged` seconds, then spiral
-      // back out. `_bondRhoFrac` (1 = apart, 0 = merged) and `_bondSpin`
-      // (accumulated rotation) drive the speaker positions in injectAudioForces.
+      // ---- Flare animation state (see updateBond) ----
+      // Every few minutes the black hole flares: a colored multi-arm bloom
+      // builds for `approach` seconds, burns for exactly `merged` seconds,
+      // then fades over `separate` seconds. `_mergeFactor` / `flareFactor`
+      // (0 = calm, 1 = full flare) and `_bondSpin` (accumulated rotation)
+      // drive the bloom in injectAudioForces.
       this.bond = {
         enabled: true,
         active: false,
         elapsed: 0,
-        approach: 8,   // seconds spiraling inward
-        merged: 7,     // seconds combined (exactly 7s as requested)
-        separate: 8,   // seconds spiraling back out
+        approach: 8,   // seconds building up
+        merged: 7,     // seconds at full flare (exactly 7s as requested)
+        separate: 8,   // seconds fading back out
         turns: 3,      // full revolutions over the whole animation
         minGap: 300,   // 5 min
         maxGap: 600,   // 10 min
@@ -182,7 +185,13 @@
       this._bondRhoFrac = 1;
       this._bondSpin = 0;
       this._mergeFactor = 0;
+      this.flareFactor = 0;
       this._scheduleNextBond();
+
+      // The black-hole core (pixel position/radius, refreshed each step;
+      // read by the particle system for gravity + horizon consumption and
+      // by the app for rendering the void disc + spectrum rim).
+      this.core = { x: width * 0.5, y: height * 0.5, r: 0, pull: 0 };
 
       this._initGrid(width, height);
     }
@@ -207,9 +216,10 @@
     updateBond(dt) {
       const b = this.bond;
       if (!b.active) {
-        this._bondRhoFrac = 1;   // speakers fully apart
+        this._bondRhoFrac = 1;   // no flare running
         this._bondSpin = 0;
         this._mergeFactor = 0;
+        this.flareFactor = 0;
         if (b.enabled && this.time >= b.nextAt) this.triggerBond();
         return;
       }
@@ -218,18 +228,19 @@
       const total = b.approach + b.merged + b.separate;
       let rhoFrac;
       if (e < b.approach) {
-        rhoFrac = 1 - this._smoother(e / b.approach);          // spiral in
+        rhoFrac = 1 - this._smoother(e / b.approach);          // build up
       } else if (e < b.approach + b.merged) {
-        rhoFrac = 0;                                            // merged
+        rhoFrac = 0;                                            // full flare
       } else if (e < total) {
-        rhoFrac = this._smoother((e - b.approach - b.merged) / b.separate); // spiral out
+        rhoFrac = this._smoother((e - b.approach - b.merged) / b.separate); // fade out
       } else {
         b.active = false; rhoFrac = 1;
         this._scheduleNextBond();
       }
       this._bondRhoFrac = rhoFrac;
-      this._mergeFactor = 1 - rhoFrac;                          // 1 at the center
-      // One monotonic spin across the whole animation -> ends back horizontal.
+      this._mergeFactor = 1 - rhoFrac;                          // 1 at full flare
+      this.flareFactor = this._mergeFactor;
+      // One monotonic spin across the whole animation -> ends where it began.
       this._bondSpin = b.turns * TAU * this._smoother(clamp(e / total, 0, 1));
     }
 
@@ -432,58 +443,81 @@
     }
 
     /* =========================================================
-       TWO-SPEAKER WAVE EMITTER
-       A single invisible circular "speaker" at (sx, sy) radiating a
-       traveling pressure wave into the liquid. The wave equation:
+       BLACK-HOLE SPECTRUM SURFACE
+       The core's surface is a circular spectrum analyzer. Each cell in
+       the annulus around the event horizon belongs to the frequency
+       band at its angle (bass at the bottom, treble at the top,
+       mirrored left/right so there is no seam), and that band's actual
+       FFT energy m_b radiates a traveling pressure wave outward from
+       the surface:
 
-         w(r,t) = A·[ sin(k·r − ω·t + φ)
-                       + H·0.5·sin(2.7k·r − 1.7ω·t + φ) ]·(1 − (r/R)²)²
+         w_b(r,t) = A · m_b · sin(k_b·r − ω_b·t) · (1 − r/reach)²
 
-       The first sine is the fundamental swell; the second is a higher
-       "overtone" that only appears with harshness H (rock / screaming)
-       and stays silent for calm, smooth music. The (1 − (r/R)²)² envelope
-       confines the wave to a perfectly round disc of radius R that fades
-       smoothly to zero at the edge. The wave is applied as a radial body
-       force, so the projection step turns it into genuine outward-
-       propagating rings inside the fluid.
+       r is the distance FROM THE SURFACE (not the center), so the rings
+       are born at the rim of the ball. Per-band wavelength and speed
+       make the spectrum literally visible in the liquid: bass bands
+       shed big slow swells, treble bands tight fast ripples. The wave
+       is a radial body force, so projection turns it into genuine
+       outward-propagating rings. Cells near the surface also receive
+       dye ∝ m_b, painting a glowing aura where the music is hot.
        ========================================================= */
-    _emitSpeaker(sx, sy, amp, k, omega, phase, radiusPx, harsh) {
-      if (amp <= 0.001) return;
-      const W = this.W, H = this.H, scale = this.scale, u = this.u, v = this.v;
-      const t = this.time, f = this.dt * 60;
-      const gx = sx / scale + 0.5, gy = sy / scale + 0.5;
-      const r = Math.max(2, radiusPx / scale);
-      const r2 = r * r;
-      const i0 = clamp((gx - r) | 0, 1, W - 2);
-      const i1 = clamp(Math.ceil(gx + r), 1, W - 2);
-      const j0 = clamp((gy - r) | 0, 1, H - 2);
-      const j1 = clamp(Math.ceil(gy + r), 1, H - 2);
+    _emitCoreSpectrum(cx, cy, r0, reach, amp, omega, spec, f) {
+      const W = this.W, H = this.H, scale = this.scale, u = this.u, v = this.v, dye = this.dye;
+      const C = this.config, t = this.time;
+      const N = spec.length;
+      const gx = cx / scale + 0.5, gy = cy / scale + 0.5;
+      const g0 = r0 / scale;                       // horizon radius, grid units
+      const g1 = (r0 + reach) / scale;             // outer edge of the annulus
+      const g1sq = g1 * g1;
+      const gIn = Math.max(0.5, g0 - 1);           // start just inside the rim
+      const dyeBand = Math.max(2, (reach * 0.1) / scale);
+      const dyeAmt = C.coreDye * f;
+      const lamL = C.waveLambdaLarge, lamS = C.waveLambdaSmall;
+      const i0 = clamp((gx - g1) | 0, 1, W - 2);
+      const i1 = clamp(Math.ceil(gx + g1), 1, W - 2);
+      const j0 = clamp((gy - g1) | 0, 1, H - 2);
+      const j1 = clamp(Math.ceil(gy + g1), 1, H - 2);
       for (let j = j0; j <= j1; j++) {
         for (let i = i0; i <= i1; i++) {
           const dxg = i - gx, dyg = j - gy;
           const d2 = dxg * dxg + dyg * dyg;
-          if (d2 >= r2) continue;                  // circular cutoff
+          if (d2 >= g1sq) continue;                // outside the annulus
           const dg = Math.sqrt(d2);
-          const rpx = dg * scale; // radial distance in pixels (for the wave phase)
-          const fall = 1 - d2 / r2;                // smooth, 0 at edge — no ring
-          const falloff = fall * fall;
-          let wave = Math.sin(k * rpx - omega * t + phase);
-          if (harsh > 0.02) wave += harsh * 0.5 * Math.sin(2.7 * k * rpx - 1.7 * omega * t + phase);
-          wave *= amp * falloff;
+          if (dg < gIn) continue;                  // inside the hole — leave it dead
+          // Mirrored band mapping: 0 at the bottom (bass) → 1 at the top
+          // (treble); |…| folds left/right onto the same band, so the two
+          // halves are symmetric and there is no wrap-around seam.
+          const frac = Math.abs(Math.atan2(dxg, dyg)) / Math.PI;
+          const bp = frac * (N - 1);
+          const b0 = bp | 0;
+          const bf = bp - b0;
+          const m = spec[b0] + (spec[Math.min(N - 1, b0 + 1)] - spec[b0]) * bf;
+          if (m < 0.015) continue;                 // silent band — no wave
+          const rpx = (dg - g0) * scale;           // distance from the surface (px)
+          const q = clamp(rpx / reach, 0, 1);
+          const env = (1 - q) * (1 - q);
+          const lam = lamL + (lamS - lamL) * frac; // treble = tight ripples
+          const k = TAU / lam;
+          const w = Math.sin(k * rpx - omega * (0.8 + 0.7 * frac) * t) * amp * m * env * f;
           const inv = dg > 1e-4 ? 1 / dg : 0;
           const idx = i + j * W;
-          u[idx] += dxg * inv * wave * f;
-          v[idx] += dyg * inv * wave * f;
+          u[idx] += dxg * inv * w;
+          v[idx] += dyg * inv * w;
+          // Glowing aura right at the surface, bright where the band is hot.
+          const surf = dg - g0;
+          if (surf < dyeBand && surf > -1) {
+            dye[idx] = Math.min(3, dye[idx] + dyeAmt * m * (1 - surf / dyeBand));
+          }
         }
       }
     }
 
     /* =========================================================
-       MERGE BLOOM — the colored swirl while the two speakers are
-       combined. A small set of spiral arms rotate around the center
-       with alternating spin; the varied velocity/vorticity across the
+       FLARE BLOOM — the colored swirl while the black hole flares.
+       A small set of spiral arms rotate around the core with
+       alternating spin; the varied velocity/vorticity across the
        arms spans the color palette, giving a rotating multi-colored
-       flower. Kept deliberately dim (gains scale with merge factor m).
+       flower. Kept deliberately dim (gains scale with flare factor m).
        ========================================================= */
     _emitMergeBloom(cx, cy, sep, R, m) {
       const C = this.config;
@@ -504,9 +538,10 @@
 
     /* =========================================================
        AUDIO -> FLUID coupling
-       Audio features never move particles directly. They drive an
-       equation for TWO fixed, invisible circular speakers that radiate
-       waves into the liquid (plus smooth, non-random global motions).
+       Audio features never move particles directly. The song's actual
+       filtered spectrum is emitted from the SURFACE of a central
+       black-hole core (see _emitCoreSpectrum), which also pulls the
+       fluid inward and spins an accretion current around itself.
        ========================================================= */
     injectAudioForces(A) {
       const C = this.config;
@@ -516,69 +551,44 @@
       const W = this.pxW, H = this.pxH;
       const cx = W * 0.5, cy = H * 0.5;
       const base = Math.min(W, H);
+      const m = this._mergeFactor;                 // flare envelope, 0..1
 
-      // ---- The speaker equation (see config for the symbols) ----
-      const m = this._mergeFactor;                 // 0 = apart, 1 = fully merged
-      const amp = (C.waveAmpBase + A.rms * C.waveAmpRms + A.bass * C.waveAmpBass + A.onsetStrength * C.waveAmpOnset)
-        * g * (1 - 0.45 * m);                       // ease the audio waves down while merged
-      const lambda = mix(C.waveLambdaLarge, C.waveLambdaSmall, A.centroid); // pitch → ring spacing
-      const k = TAU / lambda;
-      const omega = C.waveOmegaBase + A.energy * C.waveOmegaGain;            // wave speed
-      const harsh = clamp(A.highMid * 0.6 + A.treble * 0.5 + A.flux * 0.8, 0, 1); // rock/scream vs calm
-      const R = base * C.waveRadius;
-      const sep = W * C.speakerSep;
+      // Refresh the core descriptor (read by particles + renderer).
+      const r0 = base * C.coreRadius;
+      this.core.x = cx;
+      this.core.y = cy;
+      this.core.r = r0;
+      this.core.pull = C.corePullParticles * (1 + 1.2 * m);
 
-      // Speaker positions: normally left/right; during the bonding animation
-      // they spiral toward the center of mass (rho → 0) while rotating (phi),
-      // collide, then spiral back out. They sit diametrically opposite.
-      const rho = this._bondRhoFrac * sep;
-      const phi = Math.PI + this._bondSpin;
-      const ox = Math.cos(phi) * rho, oy = Math.sin(phi) * rho;
-      const ax = cx + ox, ay = cy + oy;
-      const bx = cx - ox, by = cy - oy;
-
-      // Two speakers, π out of phase, so their wavefronts interfere.
-      this._emitSpeaker(ax, ay, amp, k, omega, 0, R, harsh);
-      this._emitSpeaker(bx, by, amp, k, omega, Math.PI, R, harsh);
-
-      // Speaker repulsion: a steady outward shove (strength from loudness,
-      // reach from pitch) that pushes particles away from each speaker.
-      const repel = (C.repelRms * A.rms + C.repelBass * A.bass + C.repelOnset * A.onsetStrength)
-        * g * f * (1 - 0.5 * m);
-      if (repel > 0.02) {
-        const repelR = base * mix(C.repelRadiusLarge, C.repelRadiusSmall, A.centroid);
-        this._radialBurst(ax, ay, repel, repelR);
-        this._radialBurst(bx, by, repel, repelR);
+      // ---- Spectrum surface waves (see _emitCoreSpectrum) ----
+      const amp = (C.coreAmpBase + A.rms * C.coreAmpRms + A.bass * C.coreAmpBass + A.onsetStrength * C.coreAmpOnset)
+        * g * (1 + 0.3 * m);                       // the flare drives the waves a little harder
+      const omega = C.waveOmegaBase + A.energy * C.waveOmegaGain;
+      if (A.spectrum && (A.rms > 0.004 || A.energy > 0.004)) {
+        this._emitCoreSpectrum(cx, cy, r0, base * C.coreReach, amp, omega, A.spectrum, f);
       }
 
-      // Dye glow blooms gently at each speaker so you can sense where it sits.
-      const dye = A.rms * C.dyeGain + A.treble * C.sparkleDyeGain;
-      if (dye > 0.02) {
-        this.addDye(ax, ay, dye, R * 0.4);
-        this.addDye(bx, by, dye, R * 0.4);
-      }
+      // ---- Gravity: a steady inflow toward the hole. Projection cancels
+      // most of a pure sink (incompressibility), but the transient acts on
+      // advection every frame and the residual biases the flow inward; the
+      // direct tracer pull in particle-system.js does the visible rest.
+      const pull = C.corePull * (0.5 + A.energy) * g * f * (1 + 0.8 * m);
+      this._radialBurst(cx, cy, -pull, base * 0.9);
 
-      // ---- Merged "cool coloured" swirl (only during the bonding animation) ----
-      if (m > 0.01) this._emitMergeBloom(cx, cy, sep, R, m);
+      // ---- Accretion rotation: a slow whirlpool centered on the hole.
+      // Rotation is divergence-free, so projection preserves it — this is
+      // what keeps particles orbiting instead of piling up at the edges.
+      // The spin speed eases between values (never abruptly flips).
+      const swirl = (C.coreSwirl + A.lowMid * C.coreSwirlLowMid) * g * f;
+      const spin = 0.65 + 0.35 * Math.sin(t * C.driftTurnRate);
+      this._swirl(cx, cy, swirl * spin, Math.hypot(W, H) * 0.55);
+
+      // ---- Flare bloom (periodic showpiece; B key triggers it now) ----
+      if (m > 0.01) this._emitMergeBloom(cx, cy, W * 0.22, base * 0.62, m);
 
       // --- Sub-bass: slow global breathing pressure (smooth, non-random) ---
       const breath = Math.sin(t * 0.7) * A.sub * C.subBreathGain * g * f;
       if (Math.abs(breath) > 0.01) this._radialBurst(cx, cy, breath, base * 0.95);
-
-      // --- Low-mid: a gentle, screen-wide ROTATIONAL current (slow whirlpool) ---
-      // This used to be a *uniform* push, which behaves like a constant wind:
-      // a uniform field is divergence-free, so projection never cancels it and
-      // it swept every particle into one slowly-migrating corner. A rotation
-      // keeps the field circulating around a drifting "eye" instead — particles
-      // swirl through the frame and never pile up at an edge. The spin eases
-      // back and forth (no abrupt flips) so the motion stays alive.
-      const swirl = A.lowMid * C.lowMidGain * g * f;
-      if (swirl > 0.004) {
-        const spin = Math.sin(t * C.driftTurnRate);            // smooth reversal
-        const ex = cx + Math.cos(t * 0.07) * W * 0.10;         // eye wanders gently…
-        const ey = cy + Math.sin(t * 0.09) * H * 0.10;         // …but stays well inside
-        this._swirl(ex, ey, swirl * spin, Math.hypot(W, H) * 0.62); // reaches the corners
-      }
     }
 
     /* =========================================================

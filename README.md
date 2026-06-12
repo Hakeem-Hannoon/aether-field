@@ -16,7 +16,7 @@ The pipeline each frame is:
 
 1. **Listen** — audio comes from an uploaded file, the microphone, or captured tab/system audio.
 2. **Analyze** — the signal is reduced to a compact feature vector `A(t) = [rms, bass, lowMid, mid, highMid, treble, centroid, flux, onset]` (plus sub-bass and a smoothed energy).
-3. **Inject** — those features drive an equation for **two fixed, invisible "speakers"** that radiate pressure waves into the fluid (amplitude, pitch, speed, and harshness all set by the music), plus smooth global breathing and drift.
+3. **Inject** — the song's **filtered spectrum is emitted from the surface of a central "black hole"**: every direction on the ball's rim owns one frequency band, and that band's actual energy radiates a traveling pressure wave into the fluid. The ball also pulls everything inward like gravity, plus smooth global breathing and an accretion current.
 4. **Simulate** — the field is advanced with a Stable-Fluids solver (advect → diffuse → project) so it stays approximately divergence-free and forms real currents, eddies, and vortex filaments.
 5. **Render** — particles sample the local velocity and follow it; their color is the local fluid "temperature" (speed + vorticity + audio). A low-resolution plasma glow of the field is drawn underneath.
 
@@ -43,7 +43,8 @@ It is a **static site** — no backend, no database, no API keys.
 - **Mouse / touch field interaction** — drag to stir the fluid; press for a pressure burst.
 - **Fluid-field particle motion** — particles are tracers of a real velocity field, not independent dots.
 - **Smooth spectral color gradients** — a temperature model mapped through a 9-stop palette.
-- **Speaker bonding animation** — every 5–10 minutes the two speakers spiral together into a colored swirl for 7 seconds, then separate (can be turned off).
+- **Black-hole spectrum surface** — the song's filtered spectrum is *visible*: the central ball's rim is a circular equalizer (bass at the bottom, treble at the top) whose bands physically push the fluid.
+- **Flare animation** — every 5–10 minutes the black hole flares into a colored multi-arm bloom for 7 seconds, then settles (can be turned off; `B` triggers it).
 - **Static deployment** — drop the folder on any static host.
 
 ---
@@ -205,7 +206,7 @@ The field obeys the incompressible Navier–Stokes equations:
 | `(u · ∇)u` | **advection** — the fluid carries its own velocity along with it |
 | `-∇p / ρ` | **pressure** gradient — enforces incompressibility (`ρ` is folded into `p`) |
 | `ν∇²u` | **viscosity / diffusion** — smooths the velocity field |
-| `f` | **external force** — the two audio "speakers", pointer interaction, procedural turbulence, vorticity confinement |
+| `f` | **external force** — the black hole's spectrum surface + gravity, pointer interaction, procedural turbulence, vorticity confinement |
 | `∇ · u = 0` | **incompressibility** — the flow neither creates nor destroys volume |
 
 ### 8.2 Stable-Fluids pipeline (Jos Stam, 1999)
@@ -256,7 +257,7 @@ The analyser uses an FFT of size **2048** (1024 frequency bins). From it, `Featu
 A(t) = [rms, bass, lowMid, mid, highMid, treble, centroid, flux, onset]
 ```
 
-(plus `sub` for sub-bass and `energy`, a slow-moving level).
+(plus `sub` for sub-bass, `energy`, a slow-moving level, and `spectrum`, a **48-band log-spaced filtered spectrum** from ≈32 Hz to 14 kHz that drives the black-hole surface — log spacing because music's energy lives mostly in the low octaves. Each band has instant attack, slow release, a tilt that compensates the natural 1/f rolloff, and rolling-max auto-gain so quiet and loud tracks both fill the range).
 
 | Feature | Meaning |
 |---------|---------|
@@ -305,49 +306,50 @@ All features are smoothed with frame-rate-aware factors so the visuals stay flui
 
 ## 10. Audio-to-fluid mapping
 
-Audio features **do not move particles directly**. The core of the coupling is **two fixed, invisible circular "speakers"** placed left and right of center, like a stereo pair. Each radiates a traveling pressure wave *into the liquid*; a single equation decides how that wave looks, so there is nothing random popping up on screen.
+Audio features **do not move particles directly**. The core of the coupling is a **central "black hole"** — a dark ball at the center of the field whose **surface is a circular spectrum analyzer**. The song is reduced to a **48-band log-spaced filtered spectrum** (≈32 Hz – 14 kHz, see §9), and every direction on the ball's rim owns one band: **bass at the bottom, treble at the top, mirrored left/right** so the two halves are symmetric and there is no wrap-around seam.
 
-**The speaker wave equation** (per speaker at radial distance `r`, time `t`, phase `φ`):
+**The surface wave equation** (per band `b` at distance `r` *from the surface*, time `t`):
 
 ```
-w(r,t) = A · [ sin(k·r − ω·t + φ) + H·0.5·sin(2.7k·r − 1.7ω·t + φ) ] · (1 − (r/R)²)²
+w_b(r,t) = A · m_b · sin(k_b·r − ω_b·t) · (1 − r/reach)²
 ```
-
-with the four controls driven by the music:
 
 | Symbol | Meaning | Driven by |
 |--------|---------|-----------|
-| `A` | **amplitude** — how intense / tall the waves are | `ampBase + rms·ampRms + bass·ampBass + onset·ampOnset` |
-| `k = 2π/λ` | **pitch** — ring spacing (`λ` = wavelength) | `λ = mix(λLarge, λSmall, centroid)` → bright music = tight ripples, warm music = big slow swells |
-| `ω` | **wave speed** — how fast rings travel outward | `omegaBase + energy·omegaGain` |
-| `H` | **harshness** — adds a rough higher overtone | `clamp(highMid + treble + flux, 0, 1)` → rock / screaming churns; calm / romantic stays a smooth swell |
+| `m_b` | the band's **actual FFT energy** — the spectrum made visible | filtered spectrum (instant attack, slow release, auto-gain) |
+| `A` | **master amplitude** — how hard the surface drives the fluid | `ampBase + rms·ampRms + bass·ampBass + onset·ampOnset` |
+| `k_b = 2π/λ_b` | per-band **ring spacing** | `λ_b = mix(λLarge, λSmall, band)` → bass sheds big slow swells, treble tight fast ripples |
+| `ω_b` | per-band **wave speed** | `(omegaBase + energy·omegaGain)·(0.8 + 0.7·band)` → treble rings travel faster |
 
-The second sine is an **overtone** that only switches on with harshness `H`, so aggressive, bright, transient-heavy music gets a gritty, rough wave texture while calm music is a pure, smooth swell. The two speakers run **π out of phase**, so their wavefronts interfere in the middle — the characteristic pattern of two sound sources in a fluid. The waves are injected as a *radial body force*, so the projection step turns them into genuine outward-propagating rings (not drawn-on circles).
+Because `r` is measured from the **surface** (not the center), the rings are born at the rim of the ball — a kick drum makes the bottom of the ball shed a tall slow swell, a hi-hat makes the top spit tight quick ripples. The waves are injected as a *radial body force*, so the projection step turns them into genuine outward-propagating rings (not drawn-on circles). Cells right at the surface also receive **dye ∝ `m_b`**, painting a glowing aura exactly where the music is hot, and the rendered rim is an **equalizer ring**: it bulges and brightens per band with the same mapping, so what you see on the ball is literally what is pushing the particles.
 
-A few smooth, non-random global motions sit underneath the speakers:
+The ball is also a **gravity well**:
+
+- **Inward pull** — the fluid receives a steady inflow toward the hole (`corePull`), and particle tracers get a small direct pull (`corePullParticles`, falling off as `(r₀/d)^1.5`). Projection removes most of a pure sink from an incompressible field, which is why the tracers carry a share of the gravity themselves.
+- **Accretion rotation** — a slow whirlpool centered on the hole (`coreSwirl + lowMid·coreSwirlLowMid`) keeps everything orbiting; rotation is divergence-free, so the projection step preserves it. Combined with the pull, particles spiral inward along the accretion current.
+- **Event horizon** — any particle that crosses the core radius is **consumed** and respawns elsewhere in the field (never inside the hole).
+
+A few smooth, non-random global motions sit underneath:
 
 | Band | Effect on the fluid |
 |------|---------------------|
-| **Sub-bass** | slow global "breathing" pressure — a gentle radial in/out over the whole field |
-| **Low-mid** | a gentle, screen-wide **rotational current** (a slow whirlpool) around a drifting "eye," whose spin eases back and forth — it keeps particles circulating through the frame instead of being swept into a corner |
+| **Sub-bass** | slow global "breathing" pressure — a gentle radial in/out over the whole field (the horizon also visibly breathes with it) |
+| **Low-mid** | speeds up the **accretion rotation** around the hole |
 | **Mid / Flux** | raise **vorticity confinement**, so swirls and eddies stay crisp (`vorticityStrength = baseVorticity + mid·midGain + flux·fluxGain`) |
 | **High-mid** | amplifies the ambient procedural curl-noise (shear / turbulence) |
-| **Centroid** | sets the wave **pitch** (above) and the fluid **viscosity** (`viscosity = mix(highViscosity, lowViscosity, energyNorm)`) |
-| **RMS / Treble** | inject **dye** glow at each speaker (`dyeInjection = rms·dyeGain + treble·sparkleGain`) so you can sense where the speakers sit |
+| **Energy** | sets the fluid **viscosity** (`viscosity = mix(highViscosity, lowViscosity, energyNorm)`) and the wave speed |
 
-On top of the oscillating waves, each speaker also **repels** the fluid (and therefore the particles) with a steady outward push. Its **strength** rises with loudness (`repel = rms·repelRms + bass·repelBass + onset·repelOnset`) and its **reach** is set by pitch (`repelRadius = mix(broad, tight, centroid)` — warm/low sounds shove particles away over a wide area, bright/high sounds clear only a tight zone). The result is a low-density "bubble" around each speaker that breathes and pushes outward with the music.
+A pointer-controlled local vortex is a second, user-driven source you can stir in by dragging. All of the symbols above are tunable in `FluidField.config` (see the Customization guide).
 
-A pointer-controlled local vortex is a third, user-driven source you can stir in by dragging. All of the symbols above are tunable in `FluidField.config` (see the Customization guide).
+### Flare animation
 
-### Speaker bonding animation
+Every **5–10 minutes** (random) the black hole flares, and you can trigger it on demand with the **`B`** key:
 
-Every **5–10 minutes** (random) the two speakers play out a short choreography, and you can trigger it on demand with the **`B`** key:
+1. **Build-up (≈8 s)** — the flare envelope eases from 0 toward 1; the surface waves and the gravity pull intensify.
+2. **Full flare (exactly 7 s)** — the hole emits a rotating colored multi-arm swirl (the "bloom"). The varied velocity/vorticity across the arms spans the palette, so it reads as a rotating multi-colored flower. It is deliberately kept dim.
+3. **Fade-out (≈8 s)** — the bloom eases away and the field settles back to normal.
 
-1. **Approach (≈8 s)** — they spiral toward the shared center of mass, rotating around it and accelerating as they get closer (an orbital-decay feel), `rho → 0`.
-2. **Merged (exactly 7 s)** — combined at the center, they spin fastest and emit a colored multi-arm swirl (the "bloom"). The varied velocity/vorticity across the arms spans the palette, so it reads as a rotating multi-colored flower. It is deliberately kept dim.
-3. **Separate (≈8 s)** — they spiral back out and settle to their normal left/right rest positions (the rotation completes a whole number of turns, so they end perfectly horizontal).
-
-The whole thing is driven by a state machine in `FluidField.updateBond()`. Speaker positions are `center ± rho·(cos φ, sin φ)` with `rho` (separation) and `φ` (rotation) animated by smootherstep curves. Turn it off with the **Merge animation: Off** control; while merged, the normal audio waves are eased down so the bloom stays the focus.
+The whole thing is driven by a state machine in `FluidField.updateBond()`, with the envelope and rotation animated by smootherstep curves. Turn it off with the **Flare animation: Off** control.
 
 ---
 
@@ -437,7 +439,7 @@ In 2D this is a force perpendicular to the gradient of `|ω|`, scaled by the loc
 
 Music increases the swirl:
 
-- **Bass / RMS / onsets** raise the speaker **amplitude**, so the radial waves are taller and shed bigger rolling vortices.
+- **Bass / RMS / onsets** raise the surface-wave **amplitude**, so the radial waves are taller and shed bigger rolling vortices.
 - **Mid** raises the **vorticity confinement**, keeping rotational, ribbon-like flow crisp.
 - **High-mid** amplifies the ambient curl-noise (fine shear and turbulence).
 - **Treble / flux** raise the wave **harshness** `H`, adding the rough overtone that churns the field for aggressive music.
@@ -461,7 +463,7 @@ The confinement strength itself scales with the music: `vorticityStrength = base
 | Volume | output volume of the current track (default 0.25) |
 | Visual intensity | scales how hard audio drives the fluid (0–0.5) |
 | Particle density | Low / Med / High / Ultra / Max particle count |
-| Merge animation | turn the periodic speaker-bonding animation On / Off |
+| Flare animation | turn the periodic black-hole flare On / Off |
 | Hand control | turn camera hand-tracking On / Off (runs alongside the audio) |
 | ⤢ (fullscreen) | toggle fullscreen |
 | × (hide) | hide the panel; a "Show panel" button appears |
@@ -490,7 +492,7 @@ The confinement strength itself scales with the music: `vorticityStrength = base
 | `U` | switch to upload mode |
 | `S` | start system / tab audio capture |
 | `G` | toggle hand control (camera) |
-| `B` | trigger the speaker bonding animation now |
+| `B` | trigger a black-hole flare now |
 
 ---
 
@@ -505,8 +507,9 @@ Most tuning lives in clearly-labeled config objects.
 | **Pressure iterations** | `config.pressureIterations` in `js/fluid-field.js` (12–28) |
 | **Viscosity** | `config.viscLow` / `config.viscHigh` in `js/fluid-field.js` |
 | **Vorticity strength** | `config.vorticity`, `config.midVortGain`, `config.fluxVortGain` in `js/fluid-field.js` |
-| **Speaker waves** | the `wave*` / `speaker*` values in `FluidField.config` (amplitude, wavelength/pitch, speed, radius, separation) |
-| **Bonding animation** | `this.bond` in `js/fluid-field.js` — `minGap`/`maxGap` (5–10 min window), `approach`/`merged`/`separate` durations, `turns`; and the `merge*` gains in `config` |
+| **Black-hole core** | the `core*` / `wave*` values in `FluidField.config` (horizon radius, wave reach/amplitude, per-band wavelengths, gravity pull, accretion swirl, surface dye) |
+| **Spectrum resolution** | `spectrumBands` and the `fLo`/`fHi` range in `js/feature-extractor.js` |
+| **Flare animation** | `this.bond` in `js/fluid-field.js` — `minGap`/`maxGap` (5–10 min window), `approach`/`merged`/`separate` durations, `turns`; and the `merge*` gains in `config` |
 | **Other force strengths** | the remaining `*Gain` values in `FluidField.config` (sub-bass breathing, low-mid whirlpool, dye, pointer, hand gestures, …) |
 | **Color stops** | `COLOR_STOPS` in `js/color-mapper.js` |
 | **Temperature coefficients** | `config.coeff` in `js/particle-system.js` |

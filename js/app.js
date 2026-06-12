@@ -47,6 +47,7 @@
   const IDLE_FEATURES = {
     rms: 0, sub: 0, bass: 0, lowMid: 0, mid: 0, highMid: 0, treble: 0,
     centroid: 0, flux: 0, onset: 0, onsetStrength: 0, energy: 0,
+    spectrum: new Float32Array(48),   // silent spectrum -> dormant black hole
   };
 
   /* ---------------- Canvas ---------------- */
@@ -187,6 +188,68 @@
     ctx.globalAlpha = 1;
   }
 
+  /* ---------------- Black-hole core ---------------- */
+  // The dark disc is the event horizon; the rim is a circular spectrum
+  // analyzer (bass at the bottom, treble at the top, mirrored left/right)
+  // that matches the surface waves injected into the fluid, so what you
+  // see on the ball is exactly what's pushing the particles.
+  function renderCore(features) {
+    const core = fluid.core;
+    if (!core || !core.r) return;
+    const spec = features.spectrum;
+    const flare = fluid.flareFactor || 0;
+    // The horizon breathes slightly with sub-bass and beats.
+    const r = core.r * (1 + features.sub * 0.04 + features.onsetStrength * 0.05);
+
+    // Void disc — opaque darkness with a soft edge.
+    ctx.globalCompositeOperation = "source-over";
+    const grad = ctx.createRadialGradient(core.x, core.y, r * 0.5, core.x, core.y, r);
+    grad.addColorStop(0, "rgba(2,3,10,0.97)");
+    grad.addColorStop(0.85, "rgba(2,3,10,0.92)");
+    grad.addColorStop(1, "rgba(2,3,10,0)");
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(core.x, core.y, r, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (!spec || !spec.length) return;
+    // Spectrum rim: short additive arc segments around the horizon. The
+    // angle->band mapping is IDENTICAL to _emitCoreSpectrum (position
+    // (sin a, cos a): a = 0 is the bottom = bass, |a| = π is the top =
+    // treble), the radius bulges with the band's energy (equalizer ring),
+    // and the hue walks the palette from cool bass to hot treble.
+    ctx.globalCompositeOperation = "lighter";
+    ctx.lineCap = "round";
+    const SEG = 96;
+    const N = spec.length;
+    const boost = 1 + flare * 1.2;
+    let px = 0, py = 0;
+    for (let s = 0; s <= SEG; s++) {
+      const a = -Math.PI + (s / SEG) * Math.PI * 2;
+      const frac = Math.abs(a) / Math.PI;
+      const bp = frac * (N - 1);
+      const b0 = bp | 0;
+      const m = spec[b0] + (spec[Math.min(N - 1, b0 + 1)] - spec[b0]) * (bp - b0);
+      const R = r * (1.02 + 0.28 * m);
+      const x = core.x + Math.sin(a) * R;
+      const y = core.y + Math.cos(a) * R;
+      if (s > 0) {
+        // Base hue walks the palette with frequency; a hot band flares
+        // toward the white-gold end (otherwise loud bass stays deep blue
+        // and reads as nothing).
+        const c = colorMapper.colorAt(Math.min(0.98, 0.08 + 0.5 * frac + 0.4 * m));
+        const alpha = Math.min(1, (0.10 + 0.9 * m) * boost) * CONFIG.brightness;
+        ctx.strokeStyle = `rgba(${c[0]},${c[1]},${c[2]},${alpha})`;
+        ctx.lineWidth = 1.5 + 4.5 * m;
+        ctx.beginPath();
+        ctx.moveTo(px, py);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+      }
+      px = x; py = y;
+    }
+  }
+
   /* ---------------- Main loop ---------------- */
   let lastTime = performance.now();
 
@@ -227,6 +290,7 @@
     ctx.globalCompositeOperation = "lighter";
     renderFieldGlow(features);
     particles.draw(ctx, fluid, features, state.time, state.intensity);
+    renderCore(features);
 
     ctx.globalCompositeOperation = "source-over";
     requestAnimationFrame(frame);

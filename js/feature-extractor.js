@@ -6,7 +6,8 @@
 
        A(t) = [rms, bass, lowMid, mid, highMid, treble, centroid, flux, onset]
 
-   (plus sub-bass and a smoothed long-term energy used elsewhere).
+   (plus sub-bass, a smoothed long-term energy, and a 48-band
+   log-spaced spectrum that drives the black-hole surface).
 
    Key formulas
    ------------
@@ -91,6 +92,23 @@
       this.thresholdMultiplier = 1.6;
       this._onsetEnv = 0;   // decaying beat envelope (so a kick lasts ~0.3s, not 1 frame)
 
+      // ---- Filtered spectrum (drives the black-hole surface) ----
+      // 48 log-spaced bands from ~32 Hz to ~14 kHz. Log spacing matters:
+      // music's energy lives mostly in the low octaves, and a linear split
+      // would waste 90% of the bands on near-empty treble bins.
+      this.spectrumBands = 48;
+      this.spectrum = new Float32Array(this.spectrumBands);
+      this._specMax = 0.3;  // rolling reference for auto-gain
+      this._specBins = [];
+      const fLo = 32, fHi = 14000;
+      for (let b = 0; b < this.spectrumBands; b++) {
+        const lo = fLo * Math.pow(fHi / fLo, b / this.spectrumBands);
+        const hi = fLo * Math.pow(fHi / fLo, (b + 1) / this.spectrumBands);
+        const s = Math.max(0, Math.floor(lo / this.hzPerBin));
+        const e = Math.min(this.binCount, Math.max(s + 1, Math.ceil(hi / this.hzPerBin)));
+        this._specBins.push([s, e]);
+      }
+
       // Precompute the [startBin, endBin] index ranges for each band.
       this.bandBins = {};
       for (const k in BANDS) {
@@ -128,6 +146,9 @@
       F.onset = 0;
       F.onsetStrength = 0;
       this._onsetEnv = 0;
+      const fade = Math.exp(-dt * 2);
+      for (let b = 0; b < this.spectrumBands; b++) this.spectrum[b] *= fade;
+      F.spectrum = this.spectrum;
       return F;
     }
 
@@ -212,12 +233,32 @@
 
       F.onset = onset;
       // The raw onset is a single-frame spike; the forces it drives
-      // (waveAmpOnset, repelOnset) would act for ~16ms and be invisible.
-      // Hold it in a short exponential envelope so each beat lands as a
-      // readable punch in the fluid.
+      // would act for ~16ms and be invisible. Hold it in a short
+      // exponential envelope so each beat lands as a readable punch.
       this._onsetEnv = Math.max(this._onsetEnv * Math.exp(-dt * 6), onsetStrength);
       F.onsetStrength = this._onsetEnv;
       F.centroidHz = centroidHz;
+
+      // --- Filtered spectrum: per-band energy with auto-gain ---
+      // Tilt compensates the natural 1/f rolloff so treble reads on screen;
+      // auto-gain (rolling max, expands fast / contracts slowly) lets quiet
+      // and loud tracks both fill the range; instant attack + slow release
+      // keeps beats punchy but readable.
+      const S = this.spectrum, NB = this.spectrumBands;
+      let frameMax = 0;
+      const rel = Math.exp(-dt * 3);
+      for (let b = 0; b < NB; b++) {
+        const [s, e] = this._specBins[b];
+        let sum = 0;
+        for (let i = s; i < e; i++) sum += this.freq[i];
+        let val = (sum / (e - s) / 255) * (0.65 + 0.75 * (b / (NB - 1)));
+        if (val > frameMax) frameMax = val;
+        const scaled = clamp(val / (this._specMax + 0.05), 0, 1);
+        S[b] = Math.max(scaled, S[b] * rel);
+      }
+      if (frameMax > this._specMax) this._specMax = frameMax;
+      else this._specMax += (frameMax - this._specMax) * 0.001;
+      F.spectrum = S;
       return F;
     }
   }
