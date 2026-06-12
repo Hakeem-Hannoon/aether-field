@@ -41,7 +41,7 @@
         brightness: 1.0,       // particle brightness multiplier (set by app)
         velRef: 520,           // px/s that maps to "hot" velocity (set by app)
         vortRef: 7,            // curl magnitude that maps to "hot" vorticity (set by app)
-        // Temperature coefficients (must match README §14). Velocity (a) and
+        // Temperature coefficients (must match README §12). Velocity (a) and
         // vorticity (b) vary across the field; the audio terms (c,d,e) are the
         // same everywhere, so they're kept small to avoid washing the whole
         // field one uniform hot color when the music is loud.

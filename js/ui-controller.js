@@ -57,6 +57,8 @@
         systemNote: $("systemNote"),
         status: $("status"),
         statusDot: $("statusDot"),
+        copyrightBtn: $("copyrightBtn"),
+        copyrightNotice: $("copyrightNotice"),
       };
 
       this.mode = "upload";
@@ -110,19 +112,25 @@
 
       d.densityBtns.forEach((btn) => {
         btn.addEventListener("click", () => {
-          d.densityBtns.forEach((b) => b.classList.remove("is-active"));
-          btn.classList.add("is-active");
+          d.densityBtns.forEach((b) => UIController._setPressed(b, b === btn));
           h.onDensity(btn.dataset.density);
         });
       });
 
       d.mergeBtns.forEach((btn) => {
         btn.addEventListener("click", () => {
-          d.mergeBtns.forEach((b) => b.classList.remove("is-active"));
-          btn.classList.add("is-active");
+          d.mergeBtns.forEach((b) => UIController._setPressed(b, b === btn));
           h.onMergeToggle(btn.dataset.merge === "on");
         });
       });
+
+      if (d.copyrightBtn && d.copyrightNotice) {
+        d.copyrightBtn.addEventListener("click", () => {
+          const expanded = d.copyrightBtn.getAttribute("aria-expanded") === "true";
+          d.copyrightNotice.hidden = expanded;
+          d.copyrightBtn.setAttribute("aria-expanded", String(!expanded));
+        });
+      }
 
       // Hand control: the app confirms success (camera may be blocked), so we
       // don't flip the buttons here — setHandActive() reflects the real state.
@@ -138,6 +146,8 @@
     }
 
     _onKey(e) {
+      // Leave browser/system combos (⌘F find, ⌘S save, ctrl+…) alone.
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
       // Ignore shortcuts while typing in an input.
       if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
       switch (e.key.toLowerCase()) {
@@ -159,31 +169,41 @@
       if (mode === this.mode) return;
       this.mode = mode;
       const d = this.dom;
-      d.modeUpload.classList.toggle("is-active", mode === "upload");
-      d.modeMic.classList.toggle("is-active", mode === "mic");
-      d.modeSystem.classList.toggle("is-active", mode === "system");
-      d.modeUpload.setAttribute("aria-selected", mode === "upload");
-      d.modeMic.setAttribute("aria-selected", mode === "mic");
-      d.modeSystem.setAttribute("aria-selected", mode === "system");
+      UIController._setPressed(d.modeUpload, mode === "upload");
+      UIController._setPressed(d.modeMic, mode === "mic");
+      UIController._setPressed(d.modeSystem, mode === "system");
 
       // Upload-only controls.
-      d.musicControls.style.display = mode === "upload" ? "" : "none";
-      d.volumeRow.style.display = mode === "upload" ? "" : "none";
+      d.musicControls.hidden = mode !== "upload";
+      d.volumeRow.hidden = mode !== "upload";
       // System-audio explanation.
-      d.systemNote.style.display = mode === "system" ? "" : "none";
+      d.systemNote.hidden = mode !== "system";
 
       this.h.onMode(mode);
     }
 
+    static _setPressed(btn, on) {
+      btn.classList.toggle("is-active", on);
+      btn.setAttribute("aria-pressed", String(on));
+    }
+
     /* ---------------- Fullscreen ---------------- */
     toggleFullscreen() {
-      const el = document.documentElement;
-      if (!document.fullscreenElement) {
-        (el.requestFullscreen || el.webkitRequestFullscreen).call(el).catch(() => {
-          this.setStatus("blocked", "Fullscreen blocked");
-        });
-      } else {
-        (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+      const request = document.documentElement.requestFullscreen ||
+                      document.documentElement.webkitRequestFullscreen;
+      const exit = document.exitFullscreen || document.webkitExitFullscreen;
+      const current = document.fullscreenElement || document.webkitFullscreenElement;
+      try {
+        if (current) {
+          if (exit) exit.call(document);
+        } else if (request) {
+          const p = request.call(document.documentElement);
+          if (p && p.catch) p.catch(() => this.setStatus("blocked", "Fullscreen blocked"));
+        } else {
+          this.setStatus("blocked", "Fullscreen unsupported");
+        }
+      } catch (e) {
+        this.setStatus("blocked", "Fullscreen blocked");
       }
     }
 
@@ -213,7 +233,7 @@
     setHandActive(on) {
       this.handOn = on;
       this.dom.handBtns.forEach((b) =>
-        b.classList.toggle("is-active", (b.dataset.hand === "on") === on));
+        UIController._setPressed(b, (b.dataset.hand === "on") === on));
       if (this.dom.handPreview) this.dom.handPreview.hidden = !on;
       if (this.dom.handGestures) this.dom.handGestures.hidden = !on;
     }

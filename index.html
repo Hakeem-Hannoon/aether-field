@@ -2,7 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <!-- CSP: scripts only from this site + the pinned MediaPipe CDN; media only
+       local files / user uploads; everything else locked down. GitHub Pages
+       can't set response headers, so this meta tag is the enforcement point. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'wasm-unsafe-eval'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' https://cdn.jsdelivr.net https://storage.googleapis.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#05060d" />
   <title>Aether Field — particles advected through an audio-driven fluid</title>
   <meta name="description" content="A browser-based mathematical music visualizer where particles are advected through an audio-reactive fluid field." />
@@ -11,6 +15,7 @@
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://hakeem-hannoon.github.io/aether-field/" />
   <meta name="twitter:card" content="summary" />
+  <link rel="canonical" href="https://hakeem-hannoon.github.io/aether-field/" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='0.9em' font-size='90'%3E%F0%9F%8C%80%3C/text%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -45,10 +50,10 @@
 
     <div class="panel-body">
       <!-- Source selector -->
-      <div class="seg" role="tablist" aria-label="Audio source">
-        <button class="seg-btn is-active" id="modeUpload" role="tab" aria-selected="true">Upload</button>
-        <button class="seg-btn" id="modeMic" role="tab" aria-selected="false">Mic</button>
-        <button class="seg-btn" id="modeSystem" role="tab" aria-selected="false">System</button>
+      <div class="seg" role="group" aria-label="Audio source">
+        <button class="seg-btn is-active" id="modeUpload" aria-pressed="true">Upload</button>
+        <button class="seg-btn" id="modeMic" aria-pressed="false">Mic</button>
+        <button class="seg-btn" id="modeSystem" aria-pressed="false">System</button>
       </div>
 
       <!-- Upload controls -->
@@ -81,7 +86,7 @@
 
         <!-- Copyright notice toggle -->
         <div class="copyright-row">
-          <button class="btn-copyright" id="copyrightBtn" aria-expanded="false" title="Copyright notice">!</button>
+          <button class="btn-copyright" id="copyrightBtn" aria-expanded="false" aria-controls="copyrightNotice" title="Copyright notice" aria-label="Copyright notice">!</button>
           <div class="copyright-notice" id="copyrightNotice" hidden>
             <p>⚠ I do not own this music. Original sources:</p>
             <ul class="copyright-list">
@@ -93,7 +98,7 @@
       </div>
 
       <!-- System-audio explanation (shown only in System mode) -->
-      <p class="note" id="systemNote" style="display:none">
+      <p class="note" id="systemNote" hidden>
         Pick a <strong>tab, window, or screen</strong> and turn on
         <strong>“Share audio”</strong> in the dialog. Your browser will then show a
         <strong>“sharing” indicator</strong> — that's normal and required by the
@@ -118,11 +123,11 @@
       <div class="field">
         <span class="lbl">Particle density</span>
         <div class="seg seg-sm" role="group" aria-label="Particle density">
-          <button class="seg-btn" data-density="low">Low</button>
-          <button class="seg-btn is-active" data-density="medium">Med</button>
-          <button class="seg-btn" data-density="high">High</button>
-          <button class="seg-btn" data-density="extra_high">Ultra</button>
-          <button class="seg-btn" data-density="too_much">Max</button>
+          <button class="seg-btn" data-density="low" aria-pressed="false">Low</button>
+          <button class="seg-btn is-active" data-density="medium" aria-pressed="true">Med</button>
+          <button class="seg-btn" data-density="high" aria-pressed="false">High</button>
+          <button class="seg-btn" data-density="extra_high" aria-pressed="false">Ultra</button>
+          <button class="seg-btn" data-density="too_much" aria-pressed="false">Max</button>
         </div>
       </div>
 
@@ -130,8 +135,8 @@
       <div class="field">
         <span class="lbl">Merge animation</span>
         <div class="seg seg-sm" role="group" aria-label="Merge animation">
-          <button class="seg-btn is-active" data-merge="on">On</button>
-          <button class="seg-btn" data-merge="off">Off</button>
+          <button class="seg-btn is-active" data-merge="on" aria-pressed="true">On</button>
+          <button class="seg-btn" data-merge="off" aria-pressed="false">Off</button>
         </div>
       </div>
 
@@ -141,8 +146,8 @@
       <div class="field">
         <span class="lbl">Hand control <span class="lbl-sub">camera · plays alongside audio</span></span>
         <div class="seg seg-sm" role="group" aria-label="Hand control">
-          <button class="seg-btn" data-hand="on">On</button>
-          <button class="seg-btn is-active" data-hand="off">Off</button>
+          <button class="seg-btn" data-hand="on" aria-pressed="false">On</button>
+          <button class="seg-btn is-active" data-hand="off" aria-pressed="true">Off</button>
         </div>
         <div class="hand-preview" id="handPreview" hidden>
           <video id="handVideo" playsinline muted></video>
@@ -167,7 +172,7 @@
   </aside>
 
   <!-- Hidden audio element drives Upload mode -->
-  <audio id="audio" crossorigin="anonymous"></audio>
+  <audio id="audio"></audio>
 
   <!-- Modules (plain scripts so the page also opens from file://) -->
   <script src="js/color-mapper.js"></script>
@@ -178,13 +183,5 @@
   <script src="js/hand-tracker.js"></script>
   <script src="js/ui-controller.js"></script>
   <script src="js/app.js"></script>
-  <script>
-    document.getElementById("copyrightBtn").addEventListener("click", function () {
-      var notice = document.getElementById("copyrightNotice");
-      var expanded = this.getAttribute("aria-expanded") === "true";
-      notice.hidden = expanded;
-      this.setAttribute("aria-expanded", String(!expanded));
-    });
-  </script>
 </body>
 </html>

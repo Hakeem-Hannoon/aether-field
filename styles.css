@@ -27,7 +27,16 @@
 *::before,
 *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* The hidden attribute must always win, even over display:flex rules. */
+[hidden] { display: none !important; }
+
 html, body { height: 100%; }
+
+/* Visible focus ring for keyboard users (mouse clicks don't trigger it). */
+:focus-visible {
+  outline: 2px solid rgba(120, 160, 255, 0.85);
+  outline-offset: 2px;
+}
 
 body {
   font-family: "Inter", "Helvetica Neue", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;

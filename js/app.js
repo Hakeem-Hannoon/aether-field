@@ -244,6 +244,19 @@
   let currentIndex = -1;
   let ui;
 
+  // Demo tracks shipped in songs/ — pre-queued so the site plays with one
+  // click (sources are credited in the panel's copyright notice).
+  const PRESET_TRACKS = [
+    {
+      name: "STEREO LOVE 2 (Slowed)",
+      url: encodeURI("songs/STEREO LOVE 2 (Slowed).mp3"),
+    },
+    {
+      name: "Don't Let Me Down (slowed & reverb)",
+      url: encodeURI("songs/The Chainsmokers, Daya - Don't Let Me Down  (slowed & reverb).mp3"),
+    },
+  ];
+
   function refreshTransport() {
     ui.enableTransport(
       queue.length > 0,
@@ -276,9 +289,12 @@
   /* ---------------- UI handlers ---------------- */
   const handlers = {
     onUploadFiles(files) {
-      const wasEmpty = queue.length === 0;
+      // Auto-play the first added track if nothing has been played yet
+      // (the preset demo tracks may already be sitting in the queue).
+      const firstPlay = currentIndex < 0 || audioEl.paused;
+      const start = queue.length;
       for (const f of files) queue.push({ name: f.name, url: URL.createObjectURL(f) });
-      if (wasEmpty) { loadTrack(0); playCurrent(); }
+      if (firstPlay) { loadTrack(start); playCurrent(); }
       else refreshTransport();
       ui.setStatus("idle", "Ready");
     },
@@ -429,6 +445,14 @@
       ui.setStatus("idle", "Idle");
     }
   });
+  audioEl.addEventListener("error", () => {
+    if (!audioEl.src) return;            // ignore the reset after clearing the queue
+    ui.setPlaying(false);
+    if (state.mode === "upload") {
+      state.audioActive = false;
+      ui.setStatus("blocked", "Can't play this track");
+    }
+  });
   // Seek bar + time labels.
   audioEl.addEventListener("loadedmetadata", () => ui.setProgress(audioEl.currentTime, audioEl.duration));
   audioEl.addEventListener("durationchange", () => ui.setProgress(audioEl.currentTime, audioEl.duration));
@@ -452,7 +476,10 @@
     // HTML sliders are the source of truth for their defaults.
     audioEl.volume = parseFloat(document.getElementById("volume").value || "0.25");
     state.intensity = parseFloat(document.getElementById("intensity").value || "0.25");
-    refreshTransport();          // disabled transport + empty queue
+    // Pre-queue the demo tracks and cue up the first one. Playback still
+    // waits for a click (browsers block autoplay until a user gesture).
+    queue.push(...PRESET_TRACKS);
+    loadTrack(0);
     ui.setStatus("idle", "Idle");
     requestAnimationFrame((t) => { lastTime = t; frame(t); });
   }

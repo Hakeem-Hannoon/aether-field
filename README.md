@@ -549,7 +549,7 @@ Most tuning lives in clearly-labeled config objects.
 
 ## 18. Included tracks
 
-The following audio files are included in this repository for demonstration purposes. I do not own this music — all rights belong to the original artists and rights holders.
+The following audio files are included in this repository for demonstration purposes and come **pre-queued in the player** — click a track (or press Play) to start. I do not own this music — all rights belong to the original artists and rights holders.
 
 | Track | Original |
 |-------|----------|
